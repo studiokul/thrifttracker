@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import type { Shop, ShopWithDistance, BoloItem } from '@/lib/types';
-import { getShops, getBoloItems, deleteShop } from '@/lib/stores';
+import { getShops, getBoloItems, deleteShop, loadSeedDataIfNeeded } from '@/lib/stores';
 import { useGeolocation, useGeofence } from '@/lib/hooks';
 import { haptic } from '@/lib/haptics';
 
@@ -46,6 +46,9 @@ export default function Home() {
   const { location: userLocation } = useGeolocation();
 
   const loadData = useCallback(async () => {
+    // Load seed data on first app launch if no shops exist
+    await loadSeedDataIfNeeded();
+
     const [shopsData, boloData] = await Promise.all([
       getShops(),
       getBoloItems(),

@@ -200,6 +200,57 @@ export async function deleteBoloItem(id: string): Promise<void> {
   await deleteDoc(doc(db, BOLO_COLLECTION, id));
 }
 
+// Seed data initialization
+export async function loadSeedDataIfNeeded(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  
+  const shops = await getShops();
+  // Only load seed data if there are no shops yet
+  if (shops.length > 0) return;
+
+  const seedLoaded = getCached<boolean>('tt_seed_loaded');
+  if (seedLoaded) return;
+
+  try {
+    const response = await fetch('/seed.csv');
+    const text = await response.text();
+    
+    // Parse CSV manually (simple approach)
+    const lines = text.split('\n').filter((line) => line.trim());
+    if (lines.length < 2) return; // No data rows
+
+    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/"/g, ''));
+    
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map((v) => v.trim().replace(/"/g, ''));
+      if (values.length < 3) continue;
+
+      const row: Record<string, string> = {};
+      headers.forEach((h, idx) => {
+        row[h] = values[idx] || '';
+      });
+
+      const name = row.name || row.title;
+      const lat = parseFloat(row.lat) || 0;
+      const lng = parseFloat(row.lng) || 0;
+      const address = row.address || '';
+
+      if (name && lat !== 0 && lng !== 0) {
+        try {
+          await addShop({ name, lat, lng, address: address || undefined });
+        } catch {
+          // Continue on individual import errors
+        }
+      }
+    }
+
+    // Mark seed as loaded so we don't re-import on future visits
+    setCache('tt_seed_loaded', true);
+  } catch (err) {
+    console.log('[v0] Failed to load seed data:', err);
+  }
+}
+
 // Stats
 export async function getStats(): Promise<{
   totalShops: number;
