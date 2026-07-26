@@ -10,6 +10,10 @@ A map-based check-in tool designed to optimize thrift store and bundle shop visi
 - **Thrift Crawl**: Suggests 1-2 additional nearby shops when you pick a primary destination.
 - **BOLO (Be On the Look Out) Wishlist**: A global checklist that reminds you what you're hunting for when you check in.
 - **CSV Import**: Import your initial list of shops from a Google Maps CSV export.
+- **Visit History**: Review, edit, backdate, or undo check-ins.
+- **Shared Profiles**: Attribute visits to Amirul, Barbie, or both.
+- **Seed Reconciliation**: New repository seed rows are added without duplicating existing shops.
+- **Honest Sync State**: See whether data is live, cached, offline, or failed.
 
 ## Tech Stack
 
@@ -61,3 +65,6 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 ## Deployment
 
 This app is optimized to be deployed on [Vercel](https://vercel.com). Simply push the repository to GitHub, import it into Vercel, and ensure you add the Firebase environment variables to your Vercel project settings.
+
+For private access, follow `SECURITY.md` to enable Google sign-in and deploy the
+included allowlist-based Firestore rules.

@@ -1,19 +1,25 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   addDoc,
   updateDoc,
   deleteDoc,
+  onSnapshot,
   query,
   orderBy,
   where,
   Timestamp,
   writeBatch,
+  runTransaction,
+  serverTimestamp,
+  increment,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import Papa from 'papaparse';
 import { db } from './firebase';
-import type { Shop, CheckIn, BoloItem } from './types';
+import type { Shop, CheckIn, BoloItem, SyncStatus, UserProfile, Vibe } from './types';
 
 const SHOPS_COLLECTION = 'shops';
 const CHECKINS_COLLECTION = 'checkins';
@@ -24,6 +30,30 @@ interface SeedShopRow {
   address?: string;
   lat?: string;
   lng?: string;
+}
+
+export interface SeedSyncPreview {
+  missing: Array<{ name: string; address?: string; lat: number; lng: number }>;
+  changed: Array<{
+    id: string;
+    name: string;
+    current: { address?: string; lat: number; lng: number };
+    seed: { address?: string; lat: number; lng: number };
+  }>;
+  unchanged: number;
+}
+
+const ACTIVE_PROFILE_KEY = 'tt_active_profile';
+
+export function getActiveProfile(): UserProfile {
+  if (typeof window === 'undefined') return 'amirul';
+  const value = localStorage.getItem(ACTIVE_PROFILE_KEY);
+  return value === 'barbie' || value === 'together' ? value : 'amirul';
+}
+
+export function setActiveProfile(profile: UserProfile): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(ACTIVE_PROFILE_KEY, profile);
 }
 
 // LocalStorage cache helpers
@@ -92,6 +122,24 @@ function deserializeShop(d: Record<string, unknown>, id: string): Shop {
       : undefined,
     visitCount: (d.visitCount as number) || 0,
     dropped: (d.dropped as boolean) || false,
+    archived: (d.archived as boolean) || false,
+    source: d.source as Shop['source'],
+  };
+}
+
+function deserializeCheckIn(d: Record<string, unknown>, id: string): CheckIn {
+  const timestamp = d.timestamp as { toDate?: () => Date } | string | undefined;
+  return {
+    id,
+    shopId: d.shopId as string,
+    shopName: d.shopName as string | undefined,
+    userId: (d.userId as string) || 'amirul',
+    timestamp:
+      typeof timestamp === 'object' && timestamp?.toDate
+        ? timestamp.toDate()
+        : new Date((timestamp as string) || Date.now()),
+    vibe: d.vibe as Vibe,
+    notes: d.notes as string | undefined,
   };
 }
 
@@ -115,21 +163,99 @@ export async function getShops(): Promise<Shop[]> {
   }
 }
 
+export function subscribeToShops(
+  onData: (shops: Shop[], status: SyncStatus) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  if (!db) {
+    queueMicrotask(() => onError(new Error('Firestore is not configured')));
+    return () => {};
+  }
+
+  const q = query(collection(db, SHOPS_COLLECTION), orderBy('name'));
+  return onSnapshot(
+    q,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      const shops = snapshot.docs.map((item) =>
+        deserializeShop(item.data() as Record<string, unknown>, item.id)
+      );
+      setCache('tt_shops', shops);
+      const status: SyncStatus = snapshot.metadata.fromCache
+        ? navigator.onLine
+          ? 'cached'
+          : 'offline'
+        : 'live';
+      onData(shops, status);
+    },
+    (error) => onError(error)
+  );
+}
+
 export async function addShop(
-  shop: Omit<Shop, 'id' | 'createdAt' | 'visitCount' | 'dropped'>
+  shop: Omit<
+    Shop,
+    'id' | 'createdAt' | 'visitCount' | 'dropped' | 'archived'
+  >
 ): Promise<string> {
-  if (!db) return '';
+  if (!db) throw new Error('Firestore is not configured');
   const docRef = await addDoc(collection(db, SHOPS_COLLECTION), {
     ...shop,
-    createdAt: Timestamp.now(),
+    createdAt: serverTimestamp(),
     visitCount: 0,
     dropped: false,
+    archived: false,
   });
   return docRef.id;
 }
 
+export async function importShops(
+  shops: Array<{ name: string; address?: string; lat: number; lng: number }>
+): Promise<{ added: number; skipped: number }> {
+  if (!db) throw new Error('Firestore is not configured');
+  const firestore = db;
+  const snapshot = await getDocs(collection(firestore, SHOPS_COLLECTION));
+  const knownNames = new Set(
+    snapshot.docs.map((item) =>
+      normalizeShopName((item.data().name as string) || '')
+    )
+  );
+  const unique: typeof shops = [];
+  let skipped = 0;
+  shops.forEach((shop) => {
+    const key = normalizeShopName(shop.name);
+    if (!key || knownNames.has(key)) {
+      skipped += 1;
+      return;
+    }
+    knownNames.add(key);
+    unique.push(shop);
+  });
+
+  if (unique.length > 450) {
+    throw new Error('Import is limited to 450 new shops at a time');
+  }
+  const batch = writeBatch(firestore);
+  const createdAt = Timestamp.now();
+  unique.forEach((shop) => {
+    batch.set(
+      doc(firestore, SHOPS_COLLECTION, seedDocumentId(`csv:${shop.name}`)),
+      {
+      ...shop,
+      createdAt,
+      visitCount: 0,
+      dropped: false,
+      archived: false,
+      source: 'csv',
+      }
+    );
+  });
+  if (unique.length > 0) await batch.commit();
+  return { added: unique.length, skipped };
+}
+
 export async function updateShop(id: string, data: Partial<Shop>): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error('Firestore is not configured');
   const docRef = doc(db, SHOPS_COLLECTION, id);
   const updateData: Record<string, unknown> = { ...data };
   if (data.lastVisit) {
@@ -141,36 +267,50 @@ export async function updateShop(id: string, data: Partial<Shop>): Promise<void>
 }
 
 export async function deleteShop(id: string): Promise<void> {
-  if (!db) return;
-  await deleteDoc(doc(db, SHOPS_COLLECTION, id));
+  if (!db) throw new Error('Firestore is not configured');
+  await updateDoc(doc(db, SHOPS_COLLECTION, id), {
+    archived: true,
+    archivedAt: serverTimestamp(),
+  });
 }
 
 // Check-ins
 export async function addCheckIn(
-  checkIn: Omit<CheckIn, 'id' | 'timestamp'>
+  checkIn: Omit<CheckIn, 'id' | 'timestamp'> & { timestamp?: Date }
 ): Promise<string> {
-  if (!db) return '';
+  if (!db) throw new Error('Firestore is not configured');
+  const firestore = db;
 
-  const docRef = await addDoc(collection(db, CHECKINS_COLLECTION), {
-    ...checkIn,
-    timestamp: Timestamp.now(),
+  const checkInRef = doc(collection(firestore, CHECKINS_COLLECTION));
+  const shopRef = doc(firestore, SHOPS_COLLECTION, checkIn.shopId);
+  const visitTime = checkIn.timestamp || new Date();
+
+  await runTransaction(firestore, async (transaction) => {
+    const shopSnapshot = await transaction.get(shopRef);
+    if (!shopSnapshot.exists()) throw new Error('Shop no longer exists');
+    const shopData = shopSnapshot.data();
+    const previousLastVisit = shopData.lastVisit?.toDate?.() as Date | undefined;
+
+    transaction.set(checkInRef, {
+      shopId: checkIn.shopId,
+      shopName: checkIn.shopName || shopData.name,
+      userId: checkIn.userId,
+      vibe: checkIn.vibe,
+      notes: checkIn.notes || null,
+      timestamp: Timestamp.fromDate(visitTime),
+      createdAt: serverTimestamp(),
+    });
+    transaction.update(shopRef, {
+      lastVisit:
+        !previousLastVisit || visitTime > previousLastVisit
+          ? Timestamp.fromDate(visitTime)
+          : shopData.lastVisit,
+      visitCount: increment(1),
+      dropped: checkIn.vibe === 'drop' ? true : Boolean(shopData.dropped),
+    });
   });
 
-  // Update shop's last visit and visit count
-  const shopRef = doc(db, SHOPS_COLLECTION, checkIn.shopId);
-  const shopDocs = await getDocs(
-    query(collection(db, SHOPS_COLLECTION), where('__name__', '==', checkIn.shopId))
-  );
-  if (!shopDocs.empty) {
-    const shopData = shopDocs.docs[0].data();
-    await updateDoc(shopRef, {
-      lastVisit: Timestamp.now(),
-      visitCount: (shopData.visitCount || 0) + 1,
-      dropped: checkIn.vibe === 'drop' ? true : shopData.dropped,
-    });
-  }
-
-  return docRef.id;
+  return checkInRef.id;
 }
 
 export async function getCheckIns(shopId?: string): Promise<CheckIn[]> {
@@ -188,14 +328,90 @@ export async function getCheckIns(shopId?: string): Promise<CheckIn[]> {
       q = query(collection(db, CHECKINS_COLLECTION), orderBy('timestamp', 'desc'));
     }
     const snapshot = await getDocs(q);
-    return snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-      timestamp: d.data().timestamp?.toDate() || new Date(),
-    })) as CheckIn[];
-  } catch {
+    return snapshot.docs.map((item) =>
+      deserializeCheckIn(item.data() as Record<string, unknown>, item.id)
+    );
+  } catch (error) {
+    console.warn('getCheckIns failed:', error);
     return [];
   }
+}
+
+export function subscribeToCheckIns(
+  onData: (checkIns: CheckIn[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  if (!db) {
+    queueMicrotask(() => onError(new Error('Firestore is not configured')));
+    return () => {};
+  }
+  const q = query(collection(db, CHECKINS_COLLECTION), orderBy('timestamp', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) =>
+      onData(
+        snapshot.docs.map((item) =>
+          deserializeCheckIn(item.data() as Record<string, unknown>, item.id)
+        )
+      ),
+    (error) => onError(error)
+  );
+}
+
+async function rebuildShopVisitSummary(shopId: string): Promise<void> {
+  if (!db) throw new Error('Firestore is not configured');
+  const [shopSnapshot, checkInSnapshot] = await Promise.all([
+    getDoc(doc(db, SHOPS_COLLECTION, shopId)),
+    getDocs(query(collection(db, CHECKINS_COLLECTION), where('shopId', '==', shopId))),
+  ]);
+  if (!shopSnapshot.exists()) return;
+
+  const visits = checkInSnapshot.docs.map((item) =>
+    deserializeCheckIn(item.data() as Record<string, unknown>, item.id)
+  );
+  const latest = visits.reduce<Date | undefined>(
+    (current, visit) =>
+      !current || visit.timestamp > current ? visit.timestamp : current,
+    undefined
+  );
+  const latestDrop = visits
+    .slice()
+    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())[0]?.vibe === 'drop';
+
+  await updateDoc(doc(db, SHOPS_COLLECTION, shopId), {
+    visitCount: visits.length,
+    lastVisit: latest ? Timestamp.fromDate(latest) : null,
+    dropped: latestDrop,
+  });
+}
+
+export async function updateCheckIn(
+  id: string,
+  data: Pick<CheckIn, 'timestamp' | 'vibe' | 'notes' | 'userId'>
+): Promise<void> {
+  if (!db) throw new Error('Firestore is not configured');
+  const checkInRef = doc(db, CHECKINS_COLLECTION, id);
+  const current = await getDoc(checkInRef);
+  if (!current.exists()) throw new Error('Check-in no longer exists');
+  const shopId = current.data().shopId as string;
+  await updateDoc(checkInRef, {
+    timestamp: Timestamp.fromDate(data.timestamp),
+    vibe: data.vibe,
+    notes: data.notes || null,
+    userId: data.userId,
+    updatedAt: serverTimestamp(),
+  });
+  await rebuildShopVisitSummary(shopId);
+}
+
+export async function deleteCheckIn(id: string): Promise<void> {
+  if (!db) throw new Error('Firestore is not configured');
+  const checkInRef = doc(db, CHECKINS_COLLECTION, id);
+  const current = await getDoc(checkInRef);
+  if (!current.exists()) return;
+  const shopId = current.data().shopId as string;
+  await deleteDoc(checkInRef);
+  await rebuildShopVisitSummary(shopId);
 }
 
 // BOLO Wishlist
@@ -222,7 +438,7 @@ export async function getBoloItems(): Promise<BoloItem[]> {
 }
 
 export async function addBoloItem(text: string): Promise<string> {
-  if (!db) return '';
+  if (!db) throw new Error('Firestore is not configured');
   const docRef = await addDoc(collection(db, BOLO_COLLECTION), {
     text,
     createdAt: Timestamp.now(),
@@ -232,85 +448,181 @@ export async function addBoloItem(text: string): Promise<string> {
 }
 
 export async function toggleBoloItem(id: string, checked: boolean): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error('Firestore is not configured');
   await updateDoc(doc(db, BOLO_COLLECTION, id), { checked });
 }
 
 export async function deleteBoloItem(id: string): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error('Firestore is not configured');
   await deleteDoc(doc(db, BOLO_COLLECTION, id));
 }
 
-// Seed data initialization
-export async function loadSeedDataIfNeeded(existingShopCount?: number): Promise<void> {
-  if (typeof window === 'undefined') return;
+export function subscribeToBoloItems(
+  onData: (items: BoloItem[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  if (!db) {
+    queueMicrotask(() => onError(new Error('Firestore is not configured')));
+    return () => {};
+  }
+  const q = query(collection(db, BOLO_COLLECTION), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+        createdAt: item.data().createdAt?.toDate() || new Date(),
+      })) as BoloItem[];
+      setCache('tt_bolo', items);
+      onData(items);
+    },
+    (error) => onError(error)
+  );
+}
 
-  const shops = existingShopCount === undefined ? await getShops() : null;
-  // Only load seed data if there are no shops yet
-  if ((shops?.length || existingShopCount || 0) > 0) return;
+function normalizeShopName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
 
-  const seedLoaded = getCached<boolean>('tt_seed_loaded');
-  if (seedLoaded) return;
+function seedDocumentId(name: string): string {
+  const slug = normalizeShopName(name).replace(/\s+/g, '-').slice(0, 80);
+  let hash = 2166136261;
+  for (const character of name) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `seed-${slug}-${(hash >>> 0).toString(36)}`;
+}
 
-  try {
-    const response = await fetch('/seed.csv');
-    if (!response.ok) {
-      throw new Error(`Seed CSV request failed with ${response.status}`);
+async function readSeedRows(): Promise<
+  Array<{ name: string; address?: string; lat: number; lng: number }>
+> {
+  const response = await fetch('/seed.csv', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Seed CSV request failed with ${response.status}`);
+  }
+  const text = await response.text();
+  const parsed = Papa.parse<SeedShopRow>(text, {
+    header: true,
+    skipEmptyLines: 'greedy',
+    transformHeader: (header) => header.trim().toLowerCase(),
+  });
+  if (parsed.errors.length > 0) {
+    throw new Error(`Seed CSV parse failed: ${parsed.errors[0].message}`);
+  }
+
+  const rows = parsed.data.map((row) => ({
+    name: row.name?.trim() || '',
+    address: row.address?.trim() || undefined,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+  }));
+  const invalidRows = rows.filter(
+    (row) =>
+      !row.name ||
+      !Number.isFinite(row.lat) ||
+      !Number.isFinite(row.lng) ||
+      Math.abs(row.lat) > 90 ||
+      Math.abs(row.lng) > 180
+  );
+  if (rows.length === 0 || invalidRows.length > 0) {
+    throw new Error(`Seed CSV contains ${invalidRows.length} invalid row(s)`);
+  }
+
+  const uniqueNames = new Set(rows.map((row) => normalizeShopName(row.name)));
+  if (uniqueNames.size !== rows.length) {
+    throw new Error('Seed CSV contains duplicate shop names');
+  }
+  return rows;
+}
+
+export async function previewSeedSync(): Promise<SeedSyncPreview> {
+  if (!db) throw new Error('Firestore is not configured');
+  const [rows, snapshot] = await Promise.all([
+    readSeedRows(),
+    getDocs(collection(db, SHOPS_COLLECTION)),
+  ]);
+  const existing = snapshot.docs.map((item) =>
+    deserializeShop(item.data() as Record<string, unknown>, item.id)
+  );
+  const byName = new Map(
+    existing.map((shop) => [normalizeShopName(shop.name), shop])
+  );
+  const preview: SeedSyncPreview = { missing: [], changed: [], unchanged: 0 };
+
+  rows.forEach((row) => {
+    const match = byName.get(normalizeShopName(row.name));
+    if (!match) {
+      preview.missing.push(row);
+      return;
     }
-    const text = await response.text();
+    const changed =
+      match.address !== row.address ||
+      Math.abs(match.lat - row.lat) > 0.000001 ||
+      Math.abs(match.lng - row.lng) > 0.000001;
+    if (changed) {
+      preview.changed.push({
+        id: match.id,
+        name: match.name,
+        current: { address: match.address, lat: match.lat, lng: match.lng },
+        seed: { address: row.address, lat: row.lat, lng: row.lng },
+      });
+    } else {
+      preview.unchanged += 1;
+    }
+  });
+  return preview;
+}
 
-    const parsed = Papa.parse<SeedShopRow>(text, {
-      header: true,
-      skipEmptyLines: 'greedy',
-      transformHeader: (header) => header.trim().toLowerCase(),
+export async function applySeedSync(
+  preview: SeedSyncPreview,
+  includeUpdates = false
+): Promise<{ added: number; updated: number }> {
+  if (!db) throw new Error('Firestore is not configured');
+  const firestore = db;
+  const batch = writeBatch(firestore);
+  const createdAt = Timestamp.now();
+
+  preview.missing.forEach((row) => {
+    batch.set(doc(firestore, SHOPS_COLLECTION, seedDocumentId(row.name)), {
+      ...row,
+      createdAt,
+      visitCount: 0,
+      dropped: false,
+      archived: false,
+      source: 'seed',
     });
-    if (parsed.errors.length > 0) {
-      throw new Error(`Seed CSV parse failed: ${parsed.errors[0].message}`);
-    }
-
-    const rows = parsed.data.map((row) => ({
-      name: row.name?.trim() || '',
-      address: row.address?.trim() || '',
-      lat: Number(row.lat),
-      lng: Number(row.lng),
-    }));
-    const invalidRows = rows.filter(
-      (row) =>
-        !row.name ||
-        !Number.isFinite(row.lat) ||
-        !Number.isFinite(row.lng) ||
-        Math.abs(row.lat) > 90 ||
-        Math.abs(row.lng) > 180
-    );
-    if (rows.length === 0 || invalidRows.length > 0) {
-      throw new Error(
-        `Seed CSV contains ${invalidRows.length} invalid row(s)`
-      );
-    }
-    if (!db) {
-      throw new Error('Firestore is not configured');
-    }
-    const firestore = db;
-
-    // One atomic commit prevents partial imports and only marks success after
-    // every shop has been accepted by Firestore.
-    const batch = writeBatch(firestore);
-    const createdAt = Timestamp.now();
-    rows.forEach((row) => {
-      const shopRef = doc(collection(firestore, SHOPS_COLLECTION));
-      batch.set(shopRef, {
-        name: row.name,
-        address: row.address || undefined,
-        lat: row.lat,
-        lng: row.lng,
-        createdAt,
-        visitCount: 0,
-        dropped: false,
+  });
+  if (includeUpdates) {
+    preview.changed.forEach((change) => {
+      batch.update(doc(firestore, SHOPS_COLLECTION, change.id), {
+        ...change.seed,
+        seedSyncedAt: serverTimestamp(),
       });
     });
+  }
+  if (preview.missing.length > 0 || (includeUpdates && preview.changed.length > 0)) {
     await batch.commit();
+  }
+  return {
+    added: preview.missing.length,
+    updated: includeUpdates ? preview.changed.length : 0,
+  };
+}
 
-    setCache('tt_seed_loaded', true);
+// Adds new seed rows automatically. Existing shops are never overwritten here;
+// coordinate/address changes require explicit confirmation in the seed sync UI.
+export async function loadSeedDataIfNeeded(): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const preview = await previewSeedSync();
+    await applySeedSync(preview, false);
   } catch (err) {
     console.warn('Failed to load seed data:', err);
   }
@@ -364,7 +676,7 @@ export async function getStats(): Promise<{
   if (gapCount > 0) avgVisitGap = Math.round(totalGap / gapCount);
 
   return {
-    totalShops: shops.length,
+    totalShops: shops.filter((s) => !s.archived).length,
     totalCheckIns: checkIns.length,
     droppedShops: shops.filter((s) => s.dropped).length,
     fireShops: fireCheckIns,

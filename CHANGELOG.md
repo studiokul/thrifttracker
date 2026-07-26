@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1 - 2026-07-27
+
+### Trust and history
+- Real-time Firestore status distinguishes live, cached, offline, and failed states
+- Editable visit history with backdated check-ins and safe deletion
+- Amirul, Barbie, and Together profiles
+- Transactional check-ins keep visit documents and shop totals consistent
+- Shop archival preserves history; dropped shops can be restored
+
+### Data management
+- Seed rows are reconciled by normalized shop name on every release
+- Seed preview shows missing, changed, and matching records before manual updates
+- CSV imports are atomic and skip duplicate shop names
+- Modern multi-tab Firestore persistence replaces the deprecated persistence API
+
+### Planning
+- Fallback KL coordinates no longer pretend to be the user's current location
+- Adventure recommendations use a sensible distance ceiling
+- Recommendation cards explain freshness, distance, and nearby crawl options
+
+### Security
+- Optional Google sign-in gate
+- Allowlist-based Firestore rules and activation guide
+
 ## v1.01 - 2026-07-26
 
 ### New Features

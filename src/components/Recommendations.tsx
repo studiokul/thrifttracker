@@ -91,11 +91,7 @@ export default function Recommendations({
             {featured.name}
           </h3>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            {featured.daysSinceVisit === 9999
-              ? 'Never visited'
-              : `${featured.daysSinceVisit} days since last visit`}
-            {featured.distance !== undefined &&
-              ` · ${featured.distance.toFixed(1)} km away`}
+            {featured.recommendationReason}
           </p>
           <div className="mt-5 grid grid-cols-2 gap-2">
             <button
@@ -138,11 +134,7 @@ export default function Recommendations({
                   {shop.name}
                 </h4>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  {shop.distance?.toFixed(1)} km
-                  {' · '}
-                  {shop.daysSinceVisit === 9999
-                    ? 'Never visited'
-                    : `${shop.daysSinceVisit}d ago`}
+                  {shop.recommendationReason}
                 </p>
               </div>
               <button

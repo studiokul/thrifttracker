@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
+import AuthGate from "@/components/AuthGate";
 
 export const metadata: Metadata = {
   title: "Thrift Tracker",
@@ -40,7 +41,9 @@ export default function RootLayout({
         />
       </head>
       <body className="h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AuthGate>{children}</AuthGate>
+        </ThemeProvider>
       </body>
     </html>
   );

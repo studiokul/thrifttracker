@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { Shop, Vibe, BoloItem } from '@/lib/types';
+import type { Shop, Vibe, BoloItem, UserProfile } from '@/lib/types';
 import { addCheckIn } from '@/lib/stores';
 import { haptic } from '@/lib/haptics';
 
 interface CheckInModalProps {
   shop: Shop;
   boloItems: BoloItem[];
+  activeProfile: UserProfile;
   onClose: () => void;
   onComplete: () => void;
 }
@@ -21,12 +22,15 @@ const VIBE_OPTIONS: { vibe: Vibe; emoji: string; label: string; color: string }[
 export default function CheckInModal({
   shop,
   boloItems,
+  activeProfile,
   onClose,
   onComplete,
 }: CheckInModalProps) {
   const [selectedVibe, setSelectedVibe] = useState<Vibe | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  const [visitTime, setVisitTime] = useState('');
+  const [error, setError] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,16 +49,24 @@ export default function CheckInModal({
   const handleCheckIn = async () => {
     if (!selectedVibe) return;
     setLoading(true);
+    setError('');
     haptic('success');
 
     try {
       await addCheckIn({
         shopId: shop.id,
-        userId: 'user1',
+        shopName: shop.name,
+        userId: activeProfile,
         vibe: selectedVibe,
         notes: notes || undefined,
+        timestamp: visitTime ? new Date(visitTime) : undefined,
       });
       onComplete();
+    } catch (nextError) {
+      haptic('error');
+      setError(
+        nextError instanceof Error ? nextError.message : 'Check-in failed'
+      );
     } finally {
       setLoading(false);
     }
@@ -163,6 +175,34 @@ export default function CheckInModal({
             rows={2}
           />
         </div>
+
+        <details className="mb-5 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300">
+            Logging an earlier visit?
+          </summary>
+          <label className="mt-3 block text-sm text-slate-600 dark:text-slate-300">
+            Visit date and time
+            <input
+              type="datetime-local"
+              value={visitTime}
+              onChange={(event) => setVisitTime(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            />
+          </label>
+        </details>
+
+        <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+          Checking in as{' '}
+          <strong className="capitalize text-slate-700 dark:text-slate-200">
+            {activeProfile}
+          </strong>
+        </p>
+
+        {error && (
+          <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+            {error}
+          </p>
+        )}
 
         <button
           type="button"

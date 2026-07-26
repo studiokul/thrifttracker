@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import Papa from 'papaparse';
-import { addShop } from '@/lib/stores';
+import { importShops } from '@/lib/stores';
 import { haptic } from '@/lib/haptics';
 import BottomSheet from './BottomSheet';
 
@@ -38,7 +38,12 @@ export default function CsvImport({ onClose, onComplete }: CsvImportProps) {
     const parsed = Papa.parse<CsvRow>(text, { header: true, skipEmptyLines: true });
 
     const errors: string[] = [];
-    let imported = 0;
+    const validRows: Array<{
+      name: string;
+      address?: string;
+      lat: number;
+      lng: number;
+    }> = [];
 
     for (const row of parsed.data) {
       const name = row.name || row.title || row.Name || row.Title;
@@ -60,22 +65,27 @@ export default function CsvImport({ onClose, onComplete }: CsvImportProps) {
         continue;
       }
 
-      try {
-        await addShop({
-          name,
-          lat,
-          lng,
-          address: address || undefined,
-        });
-        imported++;
-      } catch {
-        errors.push(`Failed to import "${name}"`);
-      }
+      validRows.push({ name: name.trim(), lat, lng, address: address || undefined });
     }
 
-    haptic('success');
-    setResult({ imported, errors });
-    setLoading(false);
+    try {
+      const outcome = await importShops(validRows);
+      if (outcome.skipped > 0) {
+        errors.push(
+          `Skipped ${outcome.skipped} duplicate shop${
+            outcome.skipped === 1 ? '' : 's'
+          }`
+        );
+      }
+      haptic('success');
+      setResult({ imported: outcome.added, errors });
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'Import failed');
+      setResult({ imported: 0, errors });
+      haptic('error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

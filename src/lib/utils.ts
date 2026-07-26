@@ -33,31 +33,55 @@ export function getShopsWithScore(
   userLng: number,
   mode: RecommendationMode
 ): ShopWithDistance[] {
-  const shopsWithDistance = shops
-    .filter((s) => !s.dropped)
+  const candidates = shops
+    .filter((s) => !s.dropped && !s.archived)
     .map((shop) => {
       const distance = getDistance(userLat, userLng, shop.lat, shop.lng);
       const days = daysSince(shop.lastVisit);
+      const nearbyCount = shops.filter(
+        (other) =>
+          other.id !== shop.id &&
+          !other.dropped &&
+          !other.archived &&
+          getDistance(shop.lat, shop.lng, other.lat, other.lng) <= 5
+      ).length;
 
       let score: number;
       if (mode === 'adventure') {
-        // Adventure: heavily weight time since visit, distance is secondary
-        score = days * 2 - distance * 0.5;
+        // Cap "never visited" so distance still matters.
+        score = Math.min(days, 365) * 2 - distance * 1.5;
       } else {
         // Lazy: heavily weight proximity, penalize recent visits
         const recentPenalty = days < 7 ? (7 - days) * 10 : 0;
         score = 100 - distance * 5 - recentPenalty;
       }
 
+      const freshness =
+        days === 9999
+          ? 'Never visited'
+          : days === 0
+            ? 'Visited today'
+            : `${days} day${days === 1 ? '' : 's'} since last visit`;
+      const crawl =
+        nearbyCount > 0
+          ? ` · ${nearbyCount} nearby stop${nearbyCount === 1 ? '' : 's'}`
+          : '';
+
       return {
         ...shop,
         distance,
         daysSinceVisit: days,
         score,
+        nearbyCount,
+        recommendationReason: `${freshness} · ${distance.toFixed(1)} km away${crawl}`,
       };
     });
 
-  return shopsWithDistance.sort((a, b) => (b.score || 0) - (a.score || 0));
+  const withinSensibleRange = candidates.filter((shop) =>
+    mode === 'adventure' ? (shop.distance || 0) <= 50 : true
+  );
+  const pool = withinSensibleRange.length >= 4 ? withinSensibleRange : candidates;
+  return pool.sort((a, b) => (b.score || 0) - (a.score || 0));
 }
 
 export function getNearbyShops(
@@ -68,7 +92,7 @@ export function getNearbyShops(
   radiusKm: number = 5
 ): ShopWithDistance[] {
   return allShops
-    .filter((s) => s.id !== shop.id && !s.dropped)
+    .filter((s) => s.id !== shop.id && !s.dropped && !s.archived)
     .map((s) => ({
       ...s,
       distance: getDistance(shop.lat, shop.lng, s.lat, s.lng),

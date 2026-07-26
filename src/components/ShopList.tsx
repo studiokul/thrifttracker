@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { Shop } from '@/lib/types';
 import { daysSince } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { updateShop } from '@/lib/stores';
 
 interface ShopListProps {
   shops: Shop[];
@@ -81,15 +82,33 @@ export default function ShopList({
                   Check In
                 </button>
                 <button
-                  onClick={() => {
-                    if (confirm(`Delete "${shop.name}"?`)) {
+                  aria-label={
+                    shop.dropped
+                      ? `Reactivate ${shop.name}`
+                      : `Archive ${shop.name}`
+                  }
+                  onClick={async () => {
+                    if (shop.dropped) {
+                      haptic('light');
+                      await updateShop(shop.id, { dropped: false });
+                      return;
+                    }
+                    if (
+                      confirm(
+                        `Archive "${shop.name}"? Its visit history will be preserved.`
+                      )
+                    ) {
                       haptic('light');
                       onDeleteShop(shop.id);
                     }
                   }}
-                  className="px-2 py-1.5 text-slate-400 hover:text-red-500 text-sm"
+                  className={`min-h-11 px-2 py-1.5 text-sm ${
+                    shop.dropped
+                      ? 'font-bold text-teal-700 dark:text-teal-400'
+                      : 'text-slate-400 hover:text-red-500'
+                  }`}
                 >
-                  ×
+                  {shop.dropped ? 'Restore' : 'Archive'}
                 </button>
               </div>
             </div>

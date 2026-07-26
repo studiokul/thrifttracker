@@ -12,7 +12,7 @@ export default function AboutTab() {
         <span className="text-5xl block mb-3">🏪</span>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Thrift Tracker</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          v1.01
+          v1.1
         </p>
       </div>
 
@@ -59,6 +59,10 @@ export default function AboutTab() {
           </li>
           <li className="flex items-start gap-2">
             <span className="text-green-500 mt-0.5">✓</span>
+            <span>Editable visit history for Amirul, Barbie, or both</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-green-500 mt-0.5">✓</span>
             <span>Adventure &amp; Lazy recommendation modes</span>
           </li>
           <li className="flex items-start gap-2">
@@ -71,7 +75,7 @@ export default function AboutTab() {
           </li>
           <li className="flex items-start gap-2">
             <span className="text-green-500 mt-0.5">✓</span>
-            <span>CSV import from Google Maps</span>
+            <span>Deduplicated CSV and seed-data sync</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-green-500 mt-0.5">✓</span>

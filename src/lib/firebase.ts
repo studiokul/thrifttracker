@@ -1,5 +1,11 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getFirestore, enableIndexedDbPersistence, type Firestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,7 +18,6 @@ const firebaseConfig = {
 
 let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
-let persistenceEnabled = false;
 
 if (typeof window !== 'undefined') {
   if (getApps().length === 0) {
@@ -20,19 +25,15 @@ if (typeof window !== 'undefined') {
   } else {
     app = getApps()[0];
   }
-  db = getFirestore(app);
-
-  if (!persistenceEnabled) {
-    enableIndexedDbPersistence(db).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        // Multiple tabs open, persistence can only be enabled in one tab
-        console.warn('Firestore persistence: multiple tabs open');
-      } else if (err.code === 'unimplemented') {
-        // Browser doesn't support all features needed for persistence
-        console.warn('Firestore persistence: browser not supported');
-      }
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
     });
-    persistenceEnabled = true;
+  } catch {
+    // Hot reloads can encounter an already-initialized Firestore instance.
+    db = getFirestore(app);
   }
 }
 

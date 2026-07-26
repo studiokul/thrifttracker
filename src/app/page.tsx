@@ -2,14 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import type { BoloItem, Shop, ShopWithDistance } from '@/lib/types';
+import type {
+  BoloItem,
+  Shop,
+  ShopWithDistance,
+  SyncStatus,
+  UserProfile,
+} from '@/lib/types';
 import {
   deleteShop,
+  getActiveProfile,
   getBoloItems,
   getCachedBoloItems,
   getCachedShops,
   getShops,
   loadSeedDataIfNeeded,
+  setActiveProfile,
+  subscribeToBoloItems,
+  subscribeToShops,
 } from '@/lib/stores';
 import { useGeolocation } from '@/lib/hooks';
 import { daysSince, getDistance } from '@/lib/utils';
@@ -18,6 +28,7 @@ import CheckInModal from '@/components/CheckInModal';
 import ShopPicker from '@/components/ShopPicker';
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
 import ThemeToggle from '@/components/ThemeToggle';
+import ProfileSwitcher from '@/components/ProfileSwitcher';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
@@ -31,9 +42,20 @@ const CsvImport = dynamic(() => import('@/components/CsvImport'));
 const CrawlPanel = dynamic(() => import('@/components/CrawlPanel'));
 const StatsDashboard = dynamic(() => import('@/components/StatsDashboard'));
 const AboutTab = dynamic(() => import('@/components/AboutTab'));
+const VisitHistory = dynamic(() => import('@/components/VisitHistory'));
+const SeedSyncPanel = dynamic(() => import('@/components/SeedSyncPanel'));
 
 type Tab = 'home' | 'plan' | 'map' | 'more';
-type MoreView = 'menu' | 'bolo' | 'shops' | 'stats' | 'about';
+type MoreView = 'menu' | 'history' | 'bolo' | 'shops' | 'stats' | 'about';
+
+const MORE_TITLES: Record<MoreView, string> = {
+  menu: 'More',
+  history: 'Visit history',
+  bolo: 'BOLO wishlist',
+  shops: 'Manage shops',
+  stats: 'Visit stats',
+  about: 'About',
+};
 
 const NAV_ITEMS: Array<{
   id: Tab;
@@ -92,8 +114,8 @@ function visitLabel(shop: Shop): string {
 }
 
 export default function Home() {
-  const [shops, setShops] = useState<Shop[]>(() => getCachedShops());
-  const [boloItems, setBoloItems] = useState<BoloItem[]>(() => getCachedBoloItems());
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [boloItems, setBoloItems] = useState<BoloItem[]>([]);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [manualShop, setManualShop] = useState<Shop | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('home');
@@ -101,7 +123,9 @@ export default function Home() {
   const [showShopPicker, setShowShopPicker] = useState(false);
   const [showAddShop, setShowAddShop] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
-  const [refreshing, setRefreshing] = useState(shops.length === 0);
+  const [showSeedSync, setShowSeedSync] = useState(false);
+  const [activeProfile, setProfile] = useState<UserProfile>('amirul');
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
   const [crawlData, setCrawlData] = useState<{
     primary: ShopWithDistance;
     nearby: ShopWithDistance[];
@@ -115,55 +139,82 @@ export default function Home() {
   } = useGeolocation();
 
   const loadData = useCallback(async () => {
-    setRefreshing(true);
+    setSyncStatus('loading');
     try {
       const [shopsData, boloData] = await Promise.all([getShops(), getBoloItems()]);
       setShops(shopsData);
       setBoloItems(boloData);
-
-      if (shopsData.length === 0) {
-        // Seed writes may be slow on a first launch. Keep the home interactive
-        // and refresh it when the background import completes.
-        void loadSeedDataIfNeeded(0).then(async () => {
-          const seededShops = await getShops();
-          if (seededShops.length > 0) setShops(seededShops);
-        });
-      }
-    } catch (error) {
-      console.error('Failed to refresh data:', error);
-    } finally {
-      setRefreshing(false);
+      setSyncStatus(navigator.onLine ? 'cached' : 'offline');
+    } catch {
+      setSyncStatus('error');
     }
   }, []);
 
   useEffect(() => {
-    // Initial client-side Firestore synchronization.
+    const cachedShops = getCachedShops();
+    const cachedBolo = getCachedBoloItems();
+    // Restore browser-only state after hydration so the server and first client
+    // render remain identical.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadData();
-  }, [loadData]);
+    if (cachedShops.length > 0) setShops(cachedShops);
+    if (cachedBolo.length > 0) setBoloItems(cachedBolo);
+    setProfile(getActiveProfile());
+    if (cachedShops.length > 0) setSyncStatus('cached');
+
+    const unsubscribeShops = subscribeToShops(
+      (nextShops, status) => {
+        setShops(nextShops);
+        setSyncStatus(status);
+      },
+      () => setSyncStatus(navigator.onLine ? 'error' : 'offline')
+    );
+    const unsubscribeBolo = subscribeToBoloItems(setBoloItems, () => {});
+    const handleOnline = () => setSyncStatus('cached');
+    const handleOffline = () => setSyncStatus('offline');
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // New seed rows are reconciled by normalized name on every release.
+    void loadSeedDataIfNeeded();
+    return () => {
+      unsubscribeShops();
+      unsubscribeBolo();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const visibleShops = useMemo(
+    () => shops.filter((shop) => !shop.archived),
+    [shops]
+  );
+  const trustedLocation =
+    locationSource === 'live' || locationSource === 'cached'
+      ? userLocation
+      : null;
 
   const nearestShop = useMemo(() => {
-    if (!userLocation) return null;
-    return shops
+    if (!trustedLocation) return null;
+    return visibleShops
       .filter((shop) => !shop.dropped)
       .map((shop) => ({
         shop,
         distance: getDistance(
-          userLocation.lat,
-          userLocation.lng,
+          trustedLocation.lat,
+          trustedLocation.lng,
           shop.lat,
           shop.lng
         ),
       }))
       .sort((a, b) => a.distance - b.distance)[0] || null;
-  }, [shops, userLocation]);
+  }, [visibleShops, trustedLocation]);
 
   const likelyShop = manualShop || nearestShop?.shop || null;
   const likelyDistance =
-    likelyShop && userLocation
+    likelyShop && trustedLocation
       ? getDistance(
-          userLocation.lat,
-          userLocation.lng,
+          trustedLocation.lat,
+          trustedLocation.lng,
           likelyShop.lat,
           likelyShop.lng
         )
@@ -174,8 +225,8 @@ export default function Home() {
       ? 'Current location'
       : locationSource === 'cached'
         ? 'Recent location'
-        : locationSource === 'fallback'
-          ? 'KL starting point'
+      : locationSource === 'fallback'
+          ? 'Location unavailable'
           : 'Finding location';
 
   const handleTabChange = (tab: Tab) => {
@@ -188,7 +239,6 @@ export default function Home() {
     haptic('success');
     setSelectedShop(null);
     setManualShop(null);
-    void loadData();
   };
 
   const handleDeleteShop = async (id: string) => {
@@ -218,12 +268,19 @@ export default function Home() {
                   ? 'Plan a run'
                   : activeTab === 'map'
                     ? 'Nearby shops'
-                    : moreView === 'menu'
-                      ? 'More'
-                      : moreView}
+                    : MORE_TITLES[moreView]}
             </h1>
           </div>
-          <ThemeToggle />
+          <div className="header-actions">
+            <ProfileSwitcher
+              value={activeProfile}
+              onChange={(profile) => {
+                setProfile(profile);
+                setActiveProfile(profile);
+              }}
+            />
+            <ThemeToggle />
+          </div>
         </header>
 
         <main className="app-content">
@@ -249,9 +306,11 @@ export default function Home() {
                 <h2>
                   {likelyShop
                     ? likelyShop.name
-                    : refreshing
+                    : syncStatus === 'loading'
                       ? 'Loading your shops…'
-                      : 'No shops available'}
+                      : trustedLocation
+                        ? 'No shops available'
+                        : 'Choose a shop to check in'}
                 </h2>
                 {likelyShop && (
                   <>
@@ -286,7 +345,7 @@ export default function Home() {
               <button
                 type="button"
                 className="change-shop-button"
-                disabled={shops.length === 0}
+                disabled={visibleShops.length === 0}
                 onClick={() => setShowShopPicker(true)}
               >
                 Not here? Choose another shop
@@ -294,7 +353,7 @@ export default function Home() {
 
               <div className="quiet-status">
                 <div>
-                  <span>{shops.filter((shop) => !shop.dropped).length}</span>
+                  <span>{visibleShops.filter((shop) => !shop.dropped).length}</span>
                   active shops
                 </div>
                 <div>
@@ -302,10 +361,29 @@ export default function Home() {
                   BOLO items
                 </div>
                 <div>
-                  <span>{refreshing ? 'Syncing' : 'Ready'}</span>
+                  <span className={`sync-${syncStatus}`}>
+                    {syncStatus === 'live'
+                      ? 'Live'
+                      : syncStatus === 'cached'
+                        ? 'Cached'
+                        : syncStatus === 'offline'
+                          ? 'Offline'
+                          : syncStatus === 'error'
+                            ? 'Failed'
+                            : 'Syncing'}
+                  </span>
                   database
                 </div>
               </div>
+
+              {(syncStatus === 'error' || syncStatus === 'offline') && (
+                <button type="button" className="sync-notice" onClick={loadData}>
+                  {syncStatus === 'offline'
+                    ? 'Using saved data while offline'
+                    : 'Database sync failed'}
+                  <strong>Retry</strong>
+                </button>
+              )}
 
               {boloItems.some((item) => !item.checked) && (
                 <button
@@ -334,8 +412,8 @@ export default function Home() {
           {activeTab === 'plan' && (
             <div className="scroll-view page-padding">
               <Recommendations
-                shops={shops}
-                userLocation={userLocation}
+                shops={visibleShops}
+                userLocation={trustedLocation}
                 onSelectShop={setSelectedShop}
                 onFindNearby={(primary, nearby) =>
                   setCrawlData({ primary, nearby })
@@ -347,8 +425,8 @@ export default function Home() {
           {activeTab === 'map' && (
             <div className="map-view">
               <MapComponent
-                shops={shops}
-                userLocation={userLocation}
+                shops={visibleShops}
+                userLocation={trustedLocation}
                 onShopSelect={setSelectedShop}
                 selectedShop={selectedShop}
               />
@@ -360,6 +438,11 @@ export default function Home() {
               <div className="more-menu">
                 {[
                   {
+                    id: 'history' as const,
+                    label: 'Visit history',
+                    detail: 'Review, edit or undo check-ins',
+                  },
+                  {
                     id: 'bolo' as const,
                     label: 'BOLO wishlist',
                     detail: `${boloItems.filter((item) => !item.checked).length} active items`,
@@ -367,7 +450,7 @@ export default function Home() {
                   {
                     id: 'shops' as const,
                     label: 'Manage shops',
-                    detail: `${shops.length} saved locations`,
+                    detail: `${visibleShops.length} saved locations`,
                   },
                   {
                     id: 'stats' as const,
@@ -400,6 +483,9 @@ export default function Home() {
                 <button type="button" onClick={() => setShowCsvImport(true)}>
                   Import CSV
                 </button>
+                <button type="button" onClick={() => setShowSeedSync(true)}>
+                  Sync seed updates
+                </button>
               </div>
             </div>
           )}
@@ -414,11 +500,12 @@ export default function Home() {
                 ← More
               </button>
               {moreView === 'bolo' && (
-                <Wishlist items={boloItems} onUpdate={loadData} />
+                <Wishlist items={boloItems} onUpdate={() => {}} />
               )}
+              {moreView === 'history' && <VisitHistory shops={shops} />}
               {moreView === 'shops' && (
                 <ShopList
-                  shops={shops}
+                  shops={visibleShops}
                   onSelectShop={setSelectedShop}
                   onDeleteShop={handleDeleteShop}
                 />
@@ -449,14 +536,15 @@ export default function Home() {
         <CheckInModal
           shop={selectedShop}
           boloItems={boloItems}
+          activeProfile={activeProfile}
           onClose={() => setSelectedShop(null)}
           onComplete={handleCheckInComplete}
         />
       )}
       {showShopPicker && (
         <ShopPicker
-          shops={shops}
-          userLocation={userLocation}
+          shops={visibleShops}
+          userLocation={trustedLocation}
           onClose={() => setShowShopPicker(false)}
           onSelect={(shop) => {
             setManualShop(shop);
@@ -471,7 +559,7 @@ export default function Home() {
             setShowAddShop(false);
             void loadData();
           }}
-          initialLocation={userLocation || undefined}
+          initialLocation={trustedLocation || undefined}
         />
       )}
       {showCsvImport && (
@@ -479,6 +567,9 @@ export default function Home() {
           onClose={() => setShowCsvImport(false)}
           onComplete={loadData}
         />
+      )}
+      {showSeedSync && (
+        <SeedSyncPanel onClose={() => setShowSeedSync(false)} />
       )}
       {crawlData && (
         <CrawlPanel

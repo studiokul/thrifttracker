@@ -33,7 +33,12 @@ export default function AddShopForm({
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
 
-    if (isNaN(latNum) || isNaN(lngNum)) {
+    if (
+      isNaN(latNum) ||
+      isNaN(lngNum) ||
+      Math.abs(latNum) > 90 ||
+      Math.abs(lngNum) > 180
+    ) {
       setError('Invalid coordinates');
       return;
     }
@@ -42,16 +47,21 @@ export default function AddShopForm({
     setError('');
     haptic('medium');
 
-    await addShop({
-      name: name.trim(),
-      address: address.trim() || undefined,
-      lat: latNum,
-      lng: lngNum,
-    });
-
-    setLoading(false);
-    haptic('success');
-    onShopAdded();
+    try {
+      await addShop({
+        name: name.trim(),
+        address: address.trim() || undefined,
+        lat: latNum,
+        lng: lngNum,
+        source: 'manual',
+      });
+      haptic('success');
+      onShopAdded();
+    } catch (nextError) {
+      haptic('error');
+      setError(nextError instanceof Error ? nextError.message : 'Could not add shop');
+      setLoading(false);
+    }
   };
 
   const useCurrentLocation = () => {

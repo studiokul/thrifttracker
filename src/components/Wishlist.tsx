@@ -13,27 +13,43 @@ interface WishlistProps {
 export default function Wishlist({ items, onUpdate }: WishlistProps) {
   const [newItem, setNewItem] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleAdd = async () => {
     if (!newItem.trim()) return;
     setLoading(true);
+    setError('');
     haptic('light');
-    await addBoloItem(newItem.trim());
-    setNewItem('');
-    setLoading(false);
-    onUpdate();
+    try {
+      await addBoloItem(newItem.trim());
+      setNewItem('');
+      onUpdate();
+    } catch (nextError) {
+      haptic('error');
+      setError(nextError instanceof Error ? nextError.message : 'Could not add item');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleToggle = async (id: string, checked: boolean) => {
     haptic('light');
-    await toggleBoloItem(id, !checked);
-    onUpdate();
+    try {
+      await toggleBoloItem(id, !checked);
+      onUpdate();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not update item');
+    }
   };
 
   const handleDelete = async (id: string) => {
     haptic('light');
-    await deleteBoloItem(id);
-    onUpdate();
+    try {
+      await deleteBoloItem(id);
+      onUpdate();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not delete item');
+    }
   };
 
   const uncheckedItems = items.filter((i) => !i.checked);
@@ -42,6 +58,12 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold text-slate-900 dark:text-white">🎯 BOLO Wishlist</h2>
+
+      {error && (
+        <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </p>
+      )}
 
       <div className="flex gap-2">
         <input
