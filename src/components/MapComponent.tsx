@@ -7,6 +7,60 @@ import type { Shop } from '@/lib/types';
 import { daysSince } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 
+type MarkerStatus = 'unvisited' | 'recent' | 'aging' | 'dropped';
+
+function markerStatus(shop: Shop, days: number): MarkerStatus {
+  if (shop.dropped) return 'dropped';
+  if (days < 7) return 'recent';
+  if (days < 30) return 'aging';
+  return 'unvisited';
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      })[character] || character
+  );
+}
+
+function shopIcon(status: MarkerStatus, selected: boolean): L.DivIcon {
+  return L.divIcon({
+    className: 'thrift-marker-host',
+    html: `
+      <span class="thrift-marker thrift-marker--${status}${
+        selected ? ' is-selected' : ''
+      }" aria-hidden="true">
+        <span class="thrift-marker__core"></span>
+      </span>
+    `,
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+    popupAnchor: [0, -18],
+  });
+}
+
+function userIcon(): L.DivIcon {
+  return L.divIcon({
+    className: 'thrift-user-marker-host',
+    html: `
+      <span class="thrift-user-marker" aria-hidden="true">
+        <span class="thrift-user-marker__pulse"></span>
+        <span class="thrift-user-marker__core"></span>
+      </span>
+    `,
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    popupAnchor: [0, -19],
+  });
+}
+
 interface MapComponentProps {
   shops: Shop[];
   userLocation: { lat: number; lng: number } | null;
@@ -22,8 +76,8 @@ export default function MapComponent({
 }: MapComponentProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
-  const userMarkerRef = useRef<L.CircleMarker | null>(null);
+  const markersRef = useRef<Map<string, L.Marker>>(new Map());
+  const userMarkerRef = useRef<L.Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
@@ -41,9 +95,16 @@ export default function MapComponent({
     });
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+    L.control
+      .attribution({ position: 'bottomleft', prefix: false })
+      .addAttribution(
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      )
+      .addTo(map);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
+      attribution: '',
+      className: 'thrift-map-tile',
     }).addTo(map);
 
     mapInstanceRef.current = map;
@@ -75,15 +136,25 @@ export default function MapComponent({
     if (userMarkerRef.current) {
       userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
     } else {
-      userMarkerRef.current = L.circleMarker([userLocation.lat, userLocation.lng], {
-        radius: 10,
-        fillColor: '#3b82f6',
-        fillOpacity: 1,
-        color: '#ffffff',
-        weight: 4,
-        className: 'pulse-new',
-      })
-        .bindPopup('📍 You are here')
+      userMarkerRef.current = L.marker(
+        [userLocation.lat, userLocation.lng],
+        {
+          icon: userIcon(),
+          keyboard: true,
+          title: 'Your current location',
+          zIndexOffset: 1000,
+        }
+      )
+        .bindPopup(
+          '<div class="map-popup map-popup--user"><p class="map-popup__eyebrow">CURRENT LOCATION</p><h3>You are here</h3></div>',
+          {
+            className: 'thrift-popup',
+            closeButton: false,
+            keepInView: true,
+            autoPanPaddingTopLeft: [18, 110],
+            autoPanPaddingBottomRight: [18, 92],
+          }
+        )
         .addTo(mapInstanceRef.current);
     }
   }, [userLocation, mapReady]);
@@ -100,18 +171,14 @@ export default function MapComponent({
 
     shops.forEach((shop) => {
       const days = daysSince(shop.lastVisit);
-      let color = '#22c55e'; // Green - never/long ago
-      if (shop.dropped) color = '#6b7280'; // Gray - dropped
-      else if (days < 7) color = '#ef4444'; // Red - recent
-      else if (days < 30) color = '#f59e0b'; // Amber - somewhat recent
-
+      const status = markerStatus(shop, days);
       const isSelected = selectedShop?.id === shop.id;
-      const marker = L.circleMarker([shop.lat, shop.lng], {
-        radius: isSelected ? 14 : 10,
-        fillColor: color,
-        fillOpacity: isSelected ? 1 : 0.85,
-        color: isSelected ? '#1e40af' : '#ffffff',
-        weight: isSelected ? 3 : 2,
+      const marker = L.marker([shop.lat, shop.lng], {
+        icon: shopIcon(status, isSelected),
+        keyboard: true,
+        title: shop.name,
+        riseOnHover: true,
+        zIndexOffset: isSelected ? 500 : 0,
       });
 
       const daysText =
@@ -121,19 +188,50 @@ export default function MapComponent({
           ? 'Visited today'
           : `${days} day${days > 1 ? 's' : ''} ago`;
 
-      const statusEmoji = shop.dropped ? '🗑️' : days < 7 ? '🔴' : days < 30 ? '🟡' : '🟢';
+      const statusLabel =
+        status === 'dropped'
+          ? 'Dropped'
+          : status === 'recent'
+            ? 'Recently visited'
+            : status === 'aging'
+              ? 'Ready soon'
+              : 'Ready to explore';
 
-      marker.bindPopup(`
-        <div style="font-family: system-ui; min-width: 160px; padding: 4px;">
-          <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px;">${shop.name}</div>
-          <div style="color: #64748b; font-size: 13px; margin-bottom: 2px;">${statusEmoji} ${daysText}</div>
-          <div style="color: #64748b; font-size: 13px;">📍 ${shop.visitCount} visit${shop.visitCount !== 1 ? 's' : ''}</div>
+      marker.bindPopup(
+        `
+        <div class="map-popup">
+          <p class="map-popup__eyebrow map-popup__eyebrow--${status}">${statusLabel}</p>
+          <h3>${escapeHtml(shop.name)}</h3>
+          <p>${daysText}</p>
+          <p>${shop.visitCount} visit${shop.visitCount !== 1 ? 's' : ''}</p>
+          <button type="button" class="map-popup__action">Check in here</button>
         </div>
-      `);
+        `,
+        {
+          className: 'thrift-popup',
+          closeButton: false,
+          keepInView: true,
+          autoPanPaddingTopLeft: [18, 110],
+          autoPanPaddingBottomRight: [18, 92],
+        }
+      );
 
       marker.on('click', () => {
         haptic('light');
-        onShopSelect(shop);
+      });
+      marker.on('popupopen', () => {
+        const action = marker
+          .getPopup()
+          ?.getElement()
+          ?.querySelector<HTMLButtonElement>('.map-popup__action');
+        action?.addEventListener(
+          'click',
+          () => {
+            haptic('medium');
+            onShopSelect(shop);
+          },
+          { once: true }
+        );
       });
       marker.addTo(map);
       markersRef.current.set(shop.id, marker);
@@ -144,7 +242,7 @@ export default function MapComponent({
   return (
     <div
       ref={mapRef}
-      className="w-full h-full"
+      className="thrift-map w-full h-full"
       style={{ minHeight: '400px' }}
     />
   );

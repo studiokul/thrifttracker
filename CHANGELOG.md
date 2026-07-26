@@ -20,6 +20,12 @@
 - Adventure recommendations use a sensible distance ceiling
 - Recommendation cards explain freshness, distance, and nearby crawl options
 
+### Map design
+- Warm, desaturated OpenStreetMap treatment matched to the app palette
+- Separate dark-mode tile treatment without dimming markers or popups
+- Custom freshness pins, current-location pulse, branded popups, and map controls
+- Compact OpenStreetMap attribution restored to the map
+
 ### Security
 - Optional Google sign-in gate
 - Allowlist-based Firestore rules and activation guide

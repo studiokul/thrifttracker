@@ -459,6 +459,36 @@ select:focus-visible {
 
 .map-view {
   height: 100%;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #e8e5dc;
+}
+
+.map-view::before,
+.map-view::after {
+  content: "";
+  position: absolute;
+  z-index: 450;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.map-view::before {
+  top: 0;
+  height: 34px;
+  background: linear-gradient(to bottom, rgba(37, 48, 43, 0.12), transparent);
+}
+
+.map-view::after {
+  bottom: 0;
+  height: 52px;
+  background: linear-gradient(to top, rgba(37, 48, 43, 0.12), transparent);
+}
+
+.dark .map-view {
+  background: #101816;
 }
 
 .more-menu {
@@ -725,17 +755,31 @@ select {
   width: 100% !important;
   height: 100% !important;
   z-index: 10;
+  background: #e8e5dc;
+}
+
+.leaflet-tile-pane {
+  opacity: 0.88;
+  filter: grayscale(0.5) sepia(0.16) saturate(0.72) brightness(1.04) contrast(0.9);
 }
 
 .dark .leaflet-container {
-  filter: brightness(0.85) contrast(1.1);
+  background: #101816;
+}
+
+.dark .leaflet-tile-pane {
+  opacity: 0.76;
+  filter: invert(0.9) hue-rotate(168deg) grayscale(0.58) sepia(0.12)
+    saturate(0.72) brightness(0.54) contrast(1.08);
 }
 
 .leaflet-control-zoom {
   border: none !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 24px rgba(40, 49, 45, 0.18) !important;
   margin-right: 12px !important;
   margin-bottom: 20px !important;
+  overflow: hidden;
 }
 
 .leaflet-control-zoom a {
@@ -743,22 +787,221 @@ select {
   height: 36px !important;
   line-height: 36px !important;
   font-size: 18px !important;
-  border-radius: 8px !important;
+  border: 0 !important;
+  border-bottom: 1px solid #dedbd2 !important;
+  border-radius: 0 !important;
+  background: rgba(248, 246, 241, 0.94) !important;
+  color: #34403b !important;
+}
+
+.leaflet-control-zoom a:last-child {
+  border-bottom: 0 !important;
+}
+
+.dark .leaflet-control-zoom a {
+  border-color: #34413c !important;
+  background: rgba(23, 33, 31, 0.94) !important;
+  color: #e2e8e5 !important;
+}
+
+.leaflet-control-attribution {
+  margin: 0 0 5px 7px !important;
+  padding: 2px 5px !important;
+  border-radius: 5px;
+  background: rgba(248, 246, 241, 0.74) !important;
+  color: #6c746f !important;
+  font-size: 8px !important;
+  backdrop-filter: blur(6px);
+}
+
+.leaflet-control-attribution a {
+  color: #0f766e !important;
+}
+
+.dark .leaflet-control-attribution {
+  background: rgba(16, 24, 22, 0.76) !important;
+  color: #8d9a95 !important;
+}
+
+.thrift-marker-host,
+.thrift-user-marker-host {
+  border: 0;
+  background: transparent;
+}
+
+.thrift-marker {
+  --marker-color: #0f766e;
+  position: absolute;
+  inset: 5px;
+  display: grid;
+  place-items: center;
+  border: 3px solid rgba(255, 255, 255, 0.96);
+  border-radius: 50% 50% 50% 18%;
+  background: var(--marker-color);
+  box-shadow:
+    0 5px 14px rgba(38, 48, 44, 0.28),
+    0 0 0 1px rgba(45, 54, 50, 0.14);
+  transform: rotate(-45deg);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.thrift-marker__core {
+  width: 8px;
+  height: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.thrift-marker--recent {
+  --marker-color: #c45d4a;
+}
+
+.thrift-marker--aging {
+  --marker-color: #b58a3b;
+}
+
+.thrift-marker--dropped {
+  --marker-color: #747b77;
+  opacity: 0.78;
+}
+
+.thrift-marker.is-selected {
+  z-index: 2;
+  box-shadow:
+    0 8px 20px rgba(38, 48, 44, 0.34),
+    0 0 0 4px rgba(15, 118, 110, 0.24);
+  transform: rotate(-45deg) scale(1.2);
+}
+
+.thrift-marker-host:hover .thrift-marker {
+  transform: rotate(-45deg) scale(1.1);
+}
+
+.thrift-user-marker {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.thrift-user-marker__pulse {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(15, 118, 110, 0.2);
+  animation: map-user-pulse 2.2s ease-out infinite;
+}
+
+.thrift-user-marker__core {
+  position: relative;
+  width: 17px;
+  height: 17px;
+  border: 4px solid white;
+  border-radius: 50%;
+  background: #0f766e;
+  box-shadow: 0 4px 12px rgba(38, 48, 44, 0.3);
+}
+
+@keyframes map-user-pulse {
+  0% { transform: scale(0.55); opacity: 0.9; }
+  75%, 100% { transform: scale(1.25); opacity: 0; }
 }
 
 .leaflet-popup-content-wrapper {
-  border-radius: 0.75rem;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  padding: 4px;
+  border: 1px solid #dedbd2;
+  border-radius: 14px;
+  background: #f8f6f1;
+  box-shadow: 0 16px 34px rgba(39, 48, 44, 0.2);
+  color: #17211f;
+  padding: 0;
 }
 
 .dark .leaflet-popup-content-wrapper {
-  background: #1e293b;
-  color: #f1f5f9;
+  border-color: #34413c;
+  background: #17211f;
+  color: #f1f5f4;
 }
 
 .leaflet-popup-content {
-  margin: 12px 14px;
+  margin: 0;
+}
+
+.leaflet-popup-tip {
+  background: #f8f6f1;
+}
+
+.dark .leaflet-popup-tip {
+  background: #17211f;
+}
+
+.map-popup {
+  min-width: 178px;
+  padding: 13px 15px 14px;
+}
+
+.map-popup h3,
+.map-popup p {
+  margin: 0;
+}
+
+.map-popup h3 {
+  margin: 5px 0 8px;
+  font-size: 15px;
+  font-weight: 780;
+  line-height: 1.16;
+  letter-spacing: -0.025em;
+}
+
+.map-popup p:not(.map-popup__eyebrow) {
+  color: #6c746f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dark .map-popup p:not(.map-popup__eyebrow) {
+  color: #9aa7a1;
+}
+
+.map-popup__eyebrow {
+  color: #0f766e;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+}
+
+.map-popup__eyebrow--recent {
+  color: #ad4938;
+}
+
+.map-popup__eyebrow--aging {
+  color: #956d22;
+}
+
+.map-popup__eyebrow--dropped {
+  color: #6f7672;
+}
+
+.dark .map-popup__eyebrow {
+  color: #69cbbb;
+}
+
+.map-popup__action {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 11px;
+  border: 0;
+  border-radius: 9px;
+  background: #0f766e;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.map-popup__action:active {
+  background: #0b625c;
+  transform: scale(0.985);
 }
 
 /* Hide Next.js dev overlay badge */
