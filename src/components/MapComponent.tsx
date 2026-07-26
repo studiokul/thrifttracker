@@ -56,6 +56,18 @@ export default function MapComponent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+    const observer = new ResizeObserver(() => map.invalidateSize(false));
+    observer.observe(mapRef.current);
+    const frame = requestAnimationFrame(() => map.invalidateSize(false));
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [mapReady]);
+
   // Update user marker
   useEffect(() => {
     if (!mapInstanceRef.current || !mapReady || !userLocation) return;
@@ -127,16 +139,6 @@ export default function MapComponent({
       markersRef.current.set(shop.id, marker);
     });
 
-    // Fit bounds
-    if (shops.length > 0) {
-      const bounds = L.latLngBounds(
-        shops.map((s) => [s.lat, s.lng] as L.LatLngExpression)
-      );
-      if (userLocation) {
-        bounds.extend([userLocation.lat, userLocation.lng]);
-      }
-      map.fitBounds(bounds, { padding: [60, 60] });
-    }
   }, [shops, userLocation, selectedShop, mapReady, onShopSelect]);
 
   return (

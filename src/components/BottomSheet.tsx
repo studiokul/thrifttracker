@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useId, useRef } from 'react';
 import { haptic } from '@/lib/haptics';
 
 interface BottomSheetProps {
@@ -10,12 +10,23 @@ interface BottomSheetProps {
 }
 
 export default function BottomSheet({ children, onClose, title }: BottomSheetProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
   useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
+    dialogRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.body.style.overflow = '';
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
     };
-  }, []);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50" onClick={onClose}>
@@ -24,6 +35,11 @@ export default function BottomSheet({ children, onClose, title }: BottomSheetPro
 
       {/* Sheet */}
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
         className="absolute bottom-0 left-0 right-0 bottom-sheet bg-white dark:bg-slate-800 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -36,8 +52,10 @@ export default function BottomSheet({ children, onClose, title }: BottomSheetPro
         {title && (
           <div className="px-4 pb-3 border-b border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
+              <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
               <button
+                type="button"
+                aria-label="Close"
                 onClick={() => {
                   haptic('light');
                   onClose();

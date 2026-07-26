@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thrift-tracker-v1';
+const CACHE_NAME = 'thrift-tracker-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -33,8 +33,24 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (url.hostname.includes('firebaseio.com') || url.hostname.includes('googleapis.com')) return;
 
-  // For navigation and static assets: stale-while-revalidate
-  if (request.mode === 'navigate' || url.pathname.startsWith('/_next/')) {
+  // Navigation is network-first so a deployed update does not boot stale code.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Build assets are content-addressed and safe to cache.
+  if (url.pathname.startsWith('/_next/')) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async (cache) => {
         const cached = await cache.match(request);

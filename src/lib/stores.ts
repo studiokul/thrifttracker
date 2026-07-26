@@ -38,6 +38,30 @@ function setCache(key: string, data: unknown): void {
   }
 }
 
+export function getCachedShops(): Shop[] {
+  const shops = getCached<Array<Omit<Shop, 'createdAt' | 'lastVisit'> & {
+    createdAt: string | Date;
+    lastVisit?: string | Date;
+  }>>('tt_shops') || [];
+
+  return shops.map((shop) => ({
+    ...shop,
+    createdAt: new Date(shop.createdAt),
+    lastVisit: shop.lastVisit ? new Date(shop.lastVisit) : undefined,
+  }));
+}
+
+export function getCachedBoloItems(): BoloItem[] {
+  const items = getCached<Array<Omit<BoloItem, 'createdAt'> & {
+    createdAt: string | Date;
+  }>>('tt_bolo') || [];
+
+  return items.map((item) => ({
+    ...item,
+    createdAt: new Date(item.createdAt),
+  }));
+}
+
 function deserializeShop(d: Record<string, unknown>, id: string): Shop {
   // Handle Firestore timestamps which have a toDate() method
   const createdAtRaw = d.createdAt as { toDate?: () => Date } | string | undefined;
@@ -209,12 +233,12 @@ export async function deleteBoloItem(id: string): Promise<void> {
 }
 
 // Seed data initialization
-export async function loadSeedDataIfNeeded(): Promise<void> {
+export async function loadSeedDataIfNeeded(existingShopCount?: number): Promise<void> {
   if (typeof window === 'undefined') return;
-  
-  const shops = await getShops();
+
+  const shops = existingShopCount === undefined ? await getShops() : null;
   // Only load seed data if there are no shops yet
-  if (shops.length > 0) return;
+  if ((shops?.length || existingShopCount || 0) > 0) return;
 
   const seedLoaded = getCached<boolean>('tt_seed_loaded');
   if (seedLoaded) return;
