@@ -46,16 +46,24 @@ export default function Home() {
   const { location: userLocation } = useGeolocation();
 
   const loadData = useCallback(async () => {
-    // Load seed data on first app launch if no shops exist
-    await loadSeedDataIfNeeded();
+    try {
+      try {
+        await loadSeedDataIfNeeded();
+      } catch (seedErr) {
+        console.warn('Seed data check skipped/failed:', seedErr);
+      }
 
-    const [shopsData, boloData] = await Promise.all([
-      getShops(),
-      getBoloItems(),
-    ]);
-    setShops(shopsData);
-    setBoloItems(boloData);
-    setLoading(false);
+      const [shopsData, boloData] = await Promise.all([
+        getShops(),
+        getBoloItems(),
+      ]);
+      setShops(shopsData);
+      setBoloItems(boloData);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

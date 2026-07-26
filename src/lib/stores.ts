@@ -68,12 +68,16 @@ export async function getShops(): Promise<Shop[]> {
 
   try {
     const q = query(collection(db, SHOPS_COLLECTION), orderBy('name'));
-    const snapshot = await getDocs(q);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Firestore timeout')), 3500)
+    );
+    const snapshot = await Promise.race([getDocs(q), timeoutPromise]);
     const shops = snapshot.docs.map((d) => deserializeShop(d.data() as Record<string, unknown>, d.id));
     setCache('tt_shops', shops);
     return shops;
-  } catch {
-    // Offline or error — use cache
+  } catch (err) {
+    console.warn('getShops fallback:', err);
+    // Offline, timeout or error — use cache
     return getCached<Shop[]>('tt_shops') || [];
   }
 }
@@ -167,7 +171,10 @@ export async function getBoloItems(): Promise<BoloItem[]> {
 
   try {
     const q = query(collection(db, BOLO_COLLECTION), orderBy('createdAt', 'desc'));
-    const snapshot = await getDocs(q);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Firestore timeout')), 3500)
+    );
+    const snapshot = await Promise.race([getDocs(q), timeoutPromise]);
     const items = snapshot.docs.map((d) => ({
       id: d.id,
       ...d.data(),
@@ -175,7 +182,8 @@ export async function getBoloItems(): Promise<BoloItem[]> {
     })) as BoloItem[];
     setCache('tt_bolo', items);
     return items;
-  } catch {
+  } catch (err) {
+    console.warn('getBoloItems fallback:', err);
     return getCached<BoloItem[]>('tt_bolo') || [];
   }
 }
