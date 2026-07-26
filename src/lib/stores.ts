@@ -17,17 +17,65 @@ const SHOPS_COLLECTION = 'shops';
 const CHECKINS_COLLECTION = 'checkins';
 const BOLO_COLLECTION = 'bolo';
 
+// LocalStorage cache helpers
+function getCached<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function setCache(key: string, data: unknown): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {
+    // Storage full or blocked
+  }
+}
+
+function deserializeShop(d: Record<string, unknown>, id: string): Shop {
+  // Handle Firestore timestamps which have a toDate() method
+  const createdAtRaw = d.createdAt as { toDate?: () => Date } | string | undefined;
+  const lastVisitRaw = d.lastVisit as { toDate?: () => Date } | string | undefined;
+
+  return {
+    id,
+    name: d.name as string,
+    lat: d.lat as number,
+    lng: d.lng as number,
+    address: d.address as string | undefined,
+    createdAt: typeof createdAtRaw === 'object' && createdAtRaw?.toDate
+      ? createdAtRaw.toDate()
+      : new Date((createdAtRaw as string) || Date.now()),
+    lastVisit: lastVisitRaw
+      ? typeof lastVisitRaw === 'object' && lastVisitRaw?.toDate
+        ? lastVisitRaw.toDate()
+        : new Date(lastVisitRaw as string)
+      : undefined,
+    visitCount: (d.visitCount as number) || 0,
+    dropped: (d.dropped as boolean) || false,
+  };
+}
+
 // Shops
 export async function getShops(): Promise<Shop[]> {
-  if (!db) return [];
-  const q = query(collection(db, SHOPS_COLLECTION), orderBy('name'));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-    createdAt: d.data().createdAt?.toDate() || new Date(),
-    lastVisit: d.data().lastVisit?.toDate(),
-  })) as Shop[];
+  if (!db) return getCached<Shop[]>('tt_shops') || [];
+
+  try {
+    const q = query(collection(db, SHOPS_COLLECTION), orderBy('name'));
+    const snapshot = await getDocs(q);
+    const shops = snapshot.docs.map((d) => deserializeShop(d.data() as Record<string, unknown>, d.id));
+    setCache('tt_shops', shops);
+    return shops;
+  } catch {
+    // Offline or error — use cache
+    return getCached<Shop[]>('tt_shops') || [];
+  }
 }
 
 export async function addShop(
@@ -43,10 +91,7 @@ export async function addShop(
   return docRef.id;
 }
 
-export async function updateShop(
-  id: string,
-  data: Partial<Shop>
-): Promise<void> {
+export async function updateShop(id: string, data: Partial<Shop>): Promise<void> {
   if (!db) return;
   const docRef = doc(db, SHOPS_COLLECTION, id);
   const updateData: Record<string, unknown> = { ...data };
@@ -68,6 +113,7 @@ export async function addCheckIn(
   checkIn: Omit<CheckIn, 'id' | 'timestamp'>
 ): Promise<string> {
   if (!db) return '';
+
   const docRef = await addDoc(collection(db, CHECKINS_COLLECTION), {
     ...checkIn,
     timestamp: Timestamp.now(),
@@ -92,37 +138,46 @@ export async function addCheckIn(
 
 export async function getCheckIns(shopId?: string): Promise<CheckIn[]> {
   if (!db) return [];
-  let q;
-  if (shopId) {
-    q = query(
-      collection(db, CHECKINS_COLLECTION),
-      where('shopId', '==', shopId),
-      orderBy('timestamp', 'desc')
-    );
-  } else {
-    q = query(
-      collection(db, CHECKINS_COLLECTION),
-      orderBy('timestamp', 'desc')
-    );
+
+  try {
+    let q;
+    if (shopId) {
+      q = query(
+        collection(db, CHECKINS_COLLECTION),
+        where('shopId', '==', shopId),
+        orderBy('timestamp', 'desc')
+      );
+    } else {
+      q = query(collection(db, CHECKINS_COLLECTION), orderBy('timestamp', 'desc'));
+    }
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      timestamp: d.data().timestamp?.toDate() || new Date(),
+    })) as CheckIn[];
+  } catch {
+    return [];
   }
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-    timestamp: d.data().timestamp?.toDate() || new Date(),
-  })) as CheckIn[];
 }
 
 // BOLO Wishlist
 export async function getBoloItems(): Promise<BoloItem[]> {
-  if (!db) return [];
-  const q = query(collection(db, BOLO_COLLECTION), orderBy('createdAt', 'desc'));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-    createdAt: d.data().createdAt?.toDate() || new Date(),
-  })) as BoloItem[];
+  if (!db) return getCached<BoloItem[]>('tt_bolo') || [];
+
+  try {
+    const q = query(collection(db, BOLO_COLLECTION), orderBy('createdAt', 'desc'));
+    const snapshot = await getDocs(q);
+    const items = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      createdAt: d.data().createdAt?.toDate() || new Date(),
+    })) as BoloItem[];
+    setCache('tt_bolo', items);
+    return items;
+  } catch {
+    return getCached<BoloItem[]>('tt_bolo') || [];
+  }
 }
 
 export async function addBoloItem(text: string): Promise<string> {
@@ -143,4 +198,61 @@ export async function toggleBoloItem(id: string, checked: boolean): Promise<void
 export async function deleteBoloItem(id: string): Promise<void> {
   if (!db) return;
   await deleteDoc(doc(db, BOLO_COLLECTION, id));
+}
+
+// Stats
+export async function getStats(): Promise<{
+  totalShops: number;
+  totalCheckIns: number;
+  droppedShops: number;
+  fireShops: number;
+  topShop: string | null;
+  avgVisitGap: number;
+}> {
+  const shops = await getShops();
+  const checkIns = await getCheckIns();
+
+  const shopVisitCounts = new Map<string, number>();
+  checkIns.forEach((c) => {
+    shopVisitCounts.set(c.shopId, (shopVisitCounts.get(c.shopId) || 0) + 1);
+  });
+
+  let topShop: string | null = null;
+  let maxVisits = 0;
+  shopVisitCounts.forEach((count, shopId) => {
+    if (count > maxVisits) {
+      maxVisits = count;
+      topShop = shops.find((s) => s.id === shopId)?.name || null;
+    }
+  });
+
+  const fireCheckIns = checkIns.filter((c) => c.vibe === 'fire').length;
+
+  // Average gap between visits (in days)
+  let avgVisitGap = 0;
+  const shopVisits = new Map<string, Date[]>();
+  checkIns.forEach((c) => {
+    if (!shopVisits.has(c.shopId)) shopVisits.set(c.shopId, []);
+    shopVisits.get(c.shopId)!.push(c.timestamp);
+  });
+
+  let totalGap = 0;
+  let gapCount = 0;
+  shopVisits.forEach((visits) => {
+    const sorted = visits.sort((a, b) => a.getTime() - b.getTime());
+    for (let i = 1; i < sorted.length; i++) {
+      totalGap += (sorted[i].getTime() - sorted[i - 1].getTime()) / (1000 * 60 * 60 * 24);
+      gapCount++;
+    }
+  });
+  if (gapCount > 0) avgVisitGap = Math.round(totalGap / gapCount);
+
+  return {
+    totalShops: shops.length,
+    totalCheckIns: checkIns.length,
+    droppedShops: shops.filter((s) => s.dropped).length,
+    fireShops: fireCheckIns,
+    topShop,
+    avgVisitGap,
+  };
 }

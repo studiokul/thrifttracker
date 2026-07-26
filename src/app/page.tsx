@@ -4,14 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import type { Shop, ShopWithDistance, BoloItem } from '@/lib/types';
 import { getShops, getBoloItems, deleteShop } from '@/lib/stores';
+import { useGeolocation, useGeofence } from '@/lib/hooks';
+import { haptic } from '@/lib/haptics';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
-  loading: () => (
-    <div className="w-full h-full bg-gray-100 rounded-lg flex items-center justify-center">
-      <p className="text-gray-500">Loading map...</p>
-    </div>
-  ),
+  loading: () => <div className="skeleton w-full h-full rounded-lg" />,
 });
 
 import CheckInModal from '@/components/CheckInModal';
@@ -21,16 +19,19 @@ import ShopList from '@/components/ShopList';
 import AddShopForm from '@/components/AddShopForm';
 import CsvImport from '@/components/CsvImport';
 import CrawlPanel from '@/components/CrawlPanel';
+import BottomSheet from '@/components/BottomSheet';
+import PullToRefresh from '@/components/PullToRefresh';
+import StatsDashboard from '@/components/StatsDashboard';
+import ThemeToggle from '@/components/ThemeToggle';
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
+import AboutTab from '@/components/AboutTab';
+import { RecommendationSkeleton } from '@/components/Skeletons';
 
-type Tab = 'map' | 'recommend' | 'wishlist' | 'shops';
+type Tab = 'map' | 'recommend' | 'wishlist' | 'shops' | 'stats' | 'about';
 
 export default function Home() {
   const [shops, setShops] = useState<Shop[]>([]);
   const [boloItems, setBoloItems] = useState<BoloItem[]>([]);
-  const [userLocation, setUserLocation] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('map');
   const [showAddShop, setShowAddShop] = useState(false);
@@ -40,6 +41,9 @@ export default function Home() {
     nearby: ShopWithDistance[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [geofenceShop, setGeofenceShop] = useState<Shop | null>(null);
+
+  const { location: userLocation } = useGeolocation();
 
   const loadData = useCallback(async () => {
     const [shopsData, boloData] = await Promise.all([
@@ -56,32 +60,30 @@ export default function Home() {
     void loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setUserLocation({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        });
-      },
-      () => {
-        // Default to KL if location not available
-        setUserLocation({ lat: 3.139, lng: 101.686 });
-      }
-    );
-  }, []);
+  // Geofencing
+  useGeofence(
+    shops,
+    (shop) => {
+      haptic('medium');
+      setGeofenceShop(shop);
+    },
+    !!userLocation
+  );
 
   const handleShopSelect = (shop: Shop) => {
+    haptic('light');
     setSelectedShop(shop);
   };
 
   const handleCheckInComplete = () => {
+    haptic('success');
     setSelectedShop(null);
+    setGeofenceShop(null);
     loadData();
   };
 
   const handleDeleteShop = async (id: string) => {
+    haptic('light');
     await deleteShop(id);
     loadData();
   };
@@ -90,34 +92,56 @@ export default function Home() {
     primary: ShopWithDistance,
     nearby: ShopWithDistance[]
   ) => {
+    haptic('light');
     setCrawlData({ primary, nearby });
+  };
+
+  const handleShareCrawl = () => {
+    if (!crawlData) return;
+    const allShops = [crawlData.primary, ...crawlData.nearby];
+    const query = allShops
+      .map((s) => `${s.lat},${s.lng}`)
+      .join('/');
+    const url = `https://www.google.com/maps/dir/${query}`;
+    window.open(url, '_blank');
+    haptic('light');
   };
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4" />
-          <p className="text-gray-500">Loading...</p>
+      <div className="h-[100dvh] w-full flex flex-col bg-slate-50 dark:bg-slate-900">
+        <div className="bg-blue-600 px-4 py-3 safe-area-top shrink-0" />
+        <div className="flex-1 p-4 space-y-4">
+          <div className="skeleton h-10 w-full rounded-lg" />
+          <RecommendationSkeleton />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-slate-50">
+    <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-900 transition-colors">
+      <ServiceWorkerRegistration />
+
       {/* Header */}
-      <header className="bg-blue-600 text-white px-4 py-3 sm:py-3.5 flex items-center justify-between shadow-md shrink-0 safe-area-top z-20">
+      <header className="bg-blue-600 dark:bg-blue-800 text-white px-4 py-3 flex items-center justify-between shadow-md shrink-0 safe-area-top z-20 transition-colors">
         <h1 className="text-lg font-bold tracking-tight">🏪 Thrift Tracker</h1>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
           <button
-            onClick={() => setShowCsvImport(true)}
+            onClick={() => {
+              haptic('light');
+              setShowCsvImport(true);
+            }}
             className="px-3 py-1.5 bg-blue-500 hover:bg-blue-400 text-sm font-medium rounded-lg"
           >
             Import
           </button>
           <button
-            onClick={() => setShowAddShop(true)}
+            onClick={() => {
+              haptic('light');
+              setShowAddShop(true);
+            }}
             className="px-3 py-1.5 bg-blue-500 hover:bg-blue-400 text-sm font-medium rounded-lg"
           >
             + Add
@@ -126,7 +150,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-hidden">
         {activeTab === 'map' && (
           <div className="h-full">
             <MapComponent
@@ -139,82 +163,85 @@ export default function Home() {
         )}
 
         {activeTab === 'recommend' && (
-          <div className="p-4">
-            <Recommendations
-              shops={shops}
-              userLocation={userLocation}
-              onSelectShop={handleShopSelect}
-              onFindNearby={handleFindNearby}
-            />
-          </div>
+          <PullToRefresh onRefresh={loadData}>
+            <div className="p-4">
+              <Recommendations
+                shops={shops}
+                userLocation={userLocation}
+                onSelectShop={handleShopSelect}
+                onFindNearby={handleFindNearby}
+              />
+            </div>
+          </PullToRefresh>
         )}
 
         {activeTab === 'wishlist' && (
-          <div className="p-4">
-            <Wishlist items={boloItems} onUpdate={loadData} />
-          </div>
+          <PullToRefresh onRefresh={loadData}>
+            <div className="p-4">
+              <Wishlist items={boloItems} onUpdate={loadData} />
+            </div>
+          </PullToRefresh>
         )}
 
         {activeTab === 'shops' && (
+          <PullToRefresh onRefresh={loadData}>
+            <div className="p-4">
+              <ShopList
+                shops={shops}
+                onSelectShop={handleShopSelect}
+                onDeleteShop={handleDeleteShop}
+              />
+            </div>
+          </PullToRefresh>
+        )}
+
+        {activeTab === 'stats' && (
+          <PullToRefresh onRefresh={loadData}>
+            <div className="p-4 space-y-4">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">📊 Stats</h2>
+              <StatsDashboard />
+            </div>
+          </PullToRefresh>
+        )}
+
+        {activeTab === 'about' && (
           <div className="p-4">
-            <ShopList
-              shops={shops}
-              onSelectShop={handleShopSelect}
-              onDeleteShop={handleDeleteShop}
-            />
+            <AboutTab />
           </div>
         )}
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="bg-white border-t border-gray-200 px-2 py-1.5 flex justify-around items-center shrink-0 safe-area-bottom shadow-lg z-20">
-        <button
-          onClick={() => setActiveTab('map')}
-          className={`flex flex-col items-center px-4 py-1 rounded-xl transition-all ${
-            activeTab === 'map'
-              ? 'text-blue-600 bg-blue-50 font-semibold scale-105'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <span className="text-xl sm:text-2xl">🗺️</span>
-          <span className="text-[11px] sm:text-xs mt-0.5">Map</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('recommend')}
-          className={`flex flex-col items-center px-4 py-1 rounded-xl transition-all ${
-            activeTab === 'recommend'
-              ? 'text-blue-600 bg-blue-50 font-semibold scale-105'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <span className="text-xl sm:text-2xl">🧭</span>
-          <span className="text-[11px] sm:text-xs mt-0.5">Go</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('wishlist')}
-          className={`flex flex-col items-center px-4 py-1 rounded-xl transition-all ${
-            activeTab === 'wishlist'
-              ? 'text-blue-600 bg-blue-50 font-semibold scale-105'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <span className="text-xl sm:text-2xl">🎯</span>
-          <span className="text-[11px] sm:text-xs mt-0.5">BOLO</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('shops')}
-          className={`flex flex-col items-center px-4 py-1 rounded-xl transition-all ${
-            activeTab === 'shops'
-              ? 'text-blue-600 bg-blue-50 font-semibold scale-105'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <span className="text-xl sm:text-2xl">📋</span>
-          <span className="text-[11px] sm:text-xs mt-0.5">Shops</span>
-        </button>
+      <nav className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-2 py-1.5 flex justify-around items-center shrink-0 safe-area-bottom shadow-lg z-20 transition-colors">
+        {(
+          [
+            { id: 'map', emoji: '🗺️', label: 'Map' },
+            { id: 'recommend', emoji: '🧭', label: 'Go' },
+            { id: 'wishlist', emoji: '🎯', label: 'BOLO' },
+            { id: 'shops', emoji: '📋', label: 'Shops' },
+            { id: 'stats', emoji: '📊', label: 'Stats' },
+            { id: 'about', emoji: 'ℹ️', label: 'About' },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => {
+              haptic('light');
+              setActiveTab(tab.id);
+            }}
+            className={`flex flex-col items-center px-3 py-1 rounded-xl transition-all ${
+              activeTab === tab.id
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 font-semibold scale-105'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+            }`}
+          >
+            <span className="text-xl sm:text-2xl">{tab.emoji}</span>
+            <span className="text-[10px] sm:text-xs mt-0.5">{tab.label}</span>
+          </button>
+        ))}
       </nav>
 
-      {/* Modals */}
+      {/* Bottom Sheets */}
       {selectedShop && (
         <CheckInModal
           shop={selectedShop}
@@ -222,6 +249,36 @@ export default function Home() {
           onClose={() => setSelectedShop(null)}
           onComplete={handleCheckInComplete}
         />
+      )}
+
+      {geofenceShop && !selectedShop && (
+        <BottomSheet
+          onClose={() => setGeofenceShop(null)}
+          title="📍 You're nearby!"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Looks like you&apos;re near <strong>{geofenceShop.name}</strong>. Check in?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  handleShopSelect(geofenceShop);
+                  setGeofenceShop(null);
+                }}
+                className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
+              >
+                Check In
+              </button>
+              <button
+                onClick={() => setGeofenceShop(null)}
+                className="px-6 py-3 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium rounded-xl hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+              >
+                Nope
+              </button>
+            </div>
+          </div>
+        </BottomSheet>
       )}
 
       {showAddShop && (
@@ -247,6 +304,7 @@ export default function Home() {
           primary={crawlData.primary}
           nearby={crawlData.nearby}
           onSelectShop={handleShopSelect}
+          onShare={handleShareCrawl}
           onClose={() => setCrawlData(null)}
         />
       )}

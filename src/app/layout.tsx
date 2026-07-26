@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "Thrift Tracker",
@@ -18,7 +19,10 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#1e40af",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#1e40af" },
+    { media: "(prefers-color-scheme: dark)", color: "#1e3a5f" },
+  ],
 };
 
 export default function RootLayout({
@@ -27,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className="h-full" suppressHydrationWarning>
       <head>
         <link
           rel="stylesheet"
@@ -35,7 +39,9 @@ export default function RootLayout({
           crossOrigin=""
         />
       </head>
-      <body className="h-full bg-slate-50">{children}</body>
+      <body className="h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }

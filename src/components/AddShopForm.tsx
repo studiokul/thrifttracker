@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { addShop } from '@/lib/stores';
+import { haptic } from '@/lib/haptics';
+import BottomSheet from './BottomSheet';
 
 interface AddShopFormProps {
   onClose: () => void;
@@ -38,6 +40,7 @@ export default function AddShopForm({
 
     setLoading(true);
     setError('');
+    haptic('medium');
 
     await addShop({
       name: name.trim(),
@@ -47,10 +50,12 @@ export default function AddShopForm({
     });
 
     setLoading(false);
+    haptic('success');
     onShopAdded();
   };
 
   const useCurrentLocation = () => {
+    haptic('light');
     if (!navigator.geolocation) {
       setError('Geolocation not supported');
       return;
@@ -59,102 +64,92 @@ export default function AddShopForm({
       (pos) => {
         setLat(pos.coords.latitude.toString());
         setLng(pos.coords.longitude.toString());
+        haptic('success');
       },
       () => {
         setError('Could not get location');
+        haptic('error');
       }
     );
   };
 
   return (
-    <div className="fixed inset-0 mobile-modal-overlay z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[88dvh] overflow-y-auto safe-area-bottom">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Add New Shop</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
-          >
-            ×
-          </button>
+    <BottomSheet onClose={onClose} title="Add New Shop">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Shop Name *
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g., Bundle Paradise"
+            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            autoFocus
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Address (optional)
+          </label>
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="e.g., 123 Main St"
+            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Shop Name *
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Latitude *
             </label>
             <input
               type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Bundle Paradise"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              autoFocus
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              placeholder="3.139"
+              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Address (optional)
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Longitude *
             </label>
             <input
               type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g., 123 Main St"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={lng}
+              onChange={(e) => setLng(e.target.value)}
+              placeholder="101.686"
+              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Latitude *
-              </label>
-              <input
-                type="text"
-                value={lat}
-                onChange={(e) => setLat(e.target.value)}
-                placeholder="3.139"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Longitude *
-              </label>
-              <input
-                type="text"
-                value={lng}
-                onChange={(e) => setLng(e.target.value)}
-                placeholder="101.686"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={useCurrentLocation}
+          className="w-full py-2.5 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+        >
+          📍 Use Current Location
+        </button>
 
-          <button
-            type="button"
-            onClick={useCurrentLocation}
-            className="w-full py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50"
-          >
-            📍 Use Current Location
-          </button>
+        {error && (
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        )}
 
-          {error && (
-            <p className="text-sm text-red-600">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || !name.trim()}
-            className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? 'Adding...' : 'Add Shop'}
-          </button>
-        </form>
-      </div>
-    </div>
+        <button
+          type="submit"
+          disabled={loading || !name.trim()}
+          className="w-full py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? 'Adding...' : 'Add Shop'}
+        </button>
+      </form>
+    </BottomSheet>
   );
 }

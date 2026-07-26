@@ -2,11 +2,8 @@
 
 import { useState } from 'react';
 import type { BoloItem } from '@/lib/types';
-import {
-  addBoloItem,
-  toggleBoloItem,
-  deleteBoloItem,
-} from '@/lib/stores';
+import { addBoloItem, toggleBoloItem, deleteBoloItem } from '@/lib/stores';
+import { haptic } from '@/lib/haptics';
 
 interface WishlistProps {
   items: BoloItem[];
@@ -20,6 +17,7 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
   const handleAdd = async () => {
     if (!newItem.trim()) return;
     setLoading(true);
+    haptic('light');
     await addBoloItem(newItem.trim());
     setNewItem('');
     setLoading(false);
@@ -27,11 +25,13 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
   };
 
   const handleToggle = async (id: string, checked: boolean) => {
+    haptic('light');
     await toggleBoloItem(id, !checked);
     onUpdate();
   };
 
   const handleDelete = async (id: string) => {
+    haptic('light');
     await deleteBoloItem(id);
     onUpdate();
   };
@@ -41,7 +41,7 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-bold text-gray-900">🎯 BOLO Wishlist</h2>
+      <h2 className="text-lg font-bold text-slate-900 dark:text-white">🎯 BOLO Wishlist</h2>
 
       <div className="flex gap-2">
         <input
@@ -50,19 +50,19 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
           onChange={(e) => setNewItem(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           placeholder="Add item to hunt for..."
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
         <button
           onClick={handleAdd}
           disabled={loading || !newItem.trim()}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
         >
           Add
         </button>
       </div>
 
       {uncheckedItems.length === 0 && (
-        <p className="text-sm text-gray-500 text-center py-4">
+        <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">
           No items on your list yet
         </p>
       )}
@@ -71,16 +71,16 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
         {uncheckedItems.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg"
+            className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
           >
             <button
               onClick={() => handleToggle(item.id, item.checked)}
-              className="w-5 h-5 border-2 border-gray-300 rounded flex-shrink-0 hover:border-blue-500"
+              className="w-5 h-5 border-2 border-slate-300 dark:border-slate-500 rounded flex-shrink-0 hover:border-blue-500 transition-colors"
             />
-            <span className="flex-1 text-sm text-gray-800">{item.text}</span>
+            <span className="flex-1 text-sm text-slate-800 dark:text-slate-100">{item.text}</span>
             <button
               onClick={() => handleDelete(item.id)}
-              className="text-gray-400 hover:text-red-500 text-sm"
+              className="text-slate-400 hover:text-red-500 text-sm p-1"
             >
               ×
             </button>
@@ -90,14 +90,14 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
 
       {checkedItems.length > 0 && (
         <details className="mt-4">
-          <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+          <summary className="text-sm text-slate-500 dark:text-slate-400 cursor-pointer hover:text-slate-700 dark:hover:text-slate-200">
             Completed ({checkedItems.length})
           </summary>
           <div className="space-y-2 mt-2">
             {checkedItems.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg"
+                className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl"
               >
                 <button
                   onClick={() => handleToggle(item.id, item.checked)}
@@ -105,12 +105,12 @@ export default function Wishlist({ items, onUpdate }: WishlistProps) {
                 >
                   <span className="text-white text-xs">✓</span>
                 </button>
-                <span className="flex-1 text-sm text-gray-500 line-through">
+                <span className="flex-1 text-sm text-slate-500 dark:text-slate-400 line-through">
                   {item.text}
                 </span>
                 <button
                   onClick={() => handleDelete(item.id)}
-                  className="text-gray-400 hover:text-red-500 text-sm"
+                  className="text-slate-400 hover:text-red-500 text-sm p-1"
                 >
                   ×
                 </button>

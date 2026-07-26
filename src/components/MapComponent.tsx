@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Shop } from '@/lib/types';
 import { daysSince } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 
 interface MapComponentProps {
   shops: Shop[];
@@ -22,6 +23,7 @@ export default function MapComponent({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
+  const userMarkerRef = useRef<L.CircleMarker | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function MapComponent({
 
     const center: L.LatLngExpression = userLocation
       ? [userLocation.lat, userLocation.lng]
-      : [3.139, 101.686]; // Default to KL
+      : [3.139, 101.686];
 
     const map = L.map(mapRef.current, {
       center,
@@ -51,41 +53,53 @@ export default function MapComponent({
       map.remove();
       mapInstanceRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Update user marker
+  useEffect(() => {
+    if (!mapInstanceRef.current || !mapReady || !userLocation) return;
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
+    } else {
+      userMarkerRef.current = L.circleMarker([userLocation.lat, userLocation.lng], {
+        radius: 10,
+        fillColor: '#3b82f6',
+        fillOpacity: 1,
+        color: '#ffffff',
+        weight: 4,
+        className: 'pulse-new',
+      })
+        .bindPopup('📍 You are here')
+        .addTo(mapInstanceRef.current);
+    }
+  }, [userLocation, mapReady]);
+
+  // Update shop markers
   useEffect(() => {
     if (!mapInstanceRef.current || !mapReady) return;
 
     const map = mapInstanceRef.current;
 
-    // Add user location marker
-    if (userLocation) {
-      L.circleMarker([userLocation.lat, userLocation.lng], {
-        radius: 8,
-        fillColor: '#3b82f6',
-        fillOpacity: 1,
-        color: '#ffffff',
-        weight: 3,
-      })
-        .bindPopup('You are here')
-        .addTo(map);
-    }
+    // Clear old markers
+    markersRef.current.forEach((marker) => marker.remove());
+    markersRef.current.clear();
 
-    // Add shop markers
     shops.forEach((shop) => {
       const days = daysSince(shop.lastVisit);
       let color = '#22c55e'; // Green - never/long ago
-      if (days < 7) color = '#ef4444'; // Red - recent
+      if (shop.dropped) color = '#6b7280'; // Gray - dropped
+      else if (days < 7) color = '#ef4444'; // Red - recent
       else if (days < 30) color = '#f59e0b'; // Amber - somewhat recent
 
-      if (shop.dropped) color = '#6b7280'; // Gray - dropped
-
+      const isSelected = selectedShop?.id === shop.id;
       const marker = L.circleMarker([shop.lat, shop.lng], {
-        radius: selectedShop?.id === shop.id ? 12 : 8,
+        radius: isSelected ? 14 : 10,
         fillColor: color,
-        fillOpacity: 0.9,
-        color: '#ffffff',
-        weight: 2,
+        fillOpacity: isSelected ? 1 : 0.85,
+        color: isSelected ? '#1e40af' : '#ffffff',
+        weight: isSelected ? 3 : 2,
       });
 
       const daysText =
@@ -95,22 +109,25 @@ export default function MapComponent({
           ? 'Visited today'
           : `${days} day${days > 1 ? 's' : ''} ago`;
 
+      const statusEmoji = shop.dropped ? '🗑️' : days < 7 ? '🔴' : days < 30 ? '🟡' : '🟢';
+
       marker.bindPopup(`
-        <div style="font-family: system-ui; min-width: 150px;">
-          <strong style="font-size: 14px;">${shop.name}</strong>
-          <br />
-          <span style="color: #666; font-size: 12px;">${daysText}</span>
-          <br />
-          <span style="color: #666; font-size: 12px;">${shop.visitCount} visit${shop.visitCount !== 1 ? 's' : ''}</span>
+        <div style="font-family: system-ui; min-width: 160px; padding: 4px;">
+          <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px;">${shop.name}</div>
+          <div style="color: #64748b; font-size: 13px; margin-bottom: 2px;">${statusEmoji} ${daysText}</div>
+          <div style="color: #64748b; font-size: 13px;">📍 ${shop.visitCount} visit${shop.visitCount !== 1 ? 's' : ''}</div>
         </div>
       `);
 
-      marker.on('click', () => onShopSelect(shop));
+      marker.on('click', () => {
+        haptic('light');
+        onShopSelect(shop);
+      });
       marker.addTo(map);
       markersRef.current.set(shop.id, marker);
     });
 
-    // Fit bounds to show all markers
+    // Fit bounds
     if (shops.length > 0) {
       const bounds = L.latLngBounds(
         shops.map((s) => [s.lat, s.lng] as L.LatLngExpression)
@@ -118,14 +135,14 @@ export default function MapComponent({
       if (userLocation) {
         bounds.extend([userLocation.lat, userLocation.lng]);
       }
-      map.fitBounds(bounds, { padding: [50, 50] });
+      map.fitBounds(bounds, { padding: [60, 60] });
     }
   }, [shops, userLocation, selectedShop, mapReady, onShopSelect]);
 
   return (
     <div
       ref={mapRef}
-      className="w-full h-full rounded-lg"
+      className="w-full h-full"
       style={{ minHeight: '400px' }}
     />
   );

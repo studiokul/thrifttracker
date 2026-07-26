@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import type { Shop, ShopWithDistance, RecommendationMode } from '@/lib/types';
 import { getShopsWithScore, getNearbyShops } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 
 interface RecommendationsProps {
   shops: Shop[];
@@ -32,27 +33,31 @@ export default function Recommendations({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Where to go?</h2>
-      </div>
+      <h2 className="text-lg font-bold text-slate-900 dark:text-white">Where to go?</h2>
 
       <div className="flex gap-2">
         <button
-          onClick={() => setMode('adventure')}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-colors ${
+          onClick={() => {
+            haptic('light');
+            setMode('adventure');
+          }}
+          className={`flex-1 py-2.5 px-4 rounded-xl font-medium text-sm transition-all ${
             mode === 'adventure'
-              ? 'bg-purple-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              ? 'bg-purple-600 text-white shadow-md scale-[1.02]'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'
           }`}
         >
           🧭 Adventure
         </button>
         <button
-          onClick={() => setMode('lazy')}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-colors ${
+          onClick={() => {
+            haptic('light');
+            setMode('lazy');
+          }}
+          className={`flex-1 py-2.5 px-4 rounded-xl font-medium text-sm transition-all ${
             mode === 'lazy'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              ? 'bg-blue-600 text-white shadow-md scale-[1.02]'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600'
           }`}
         >
           🛋️ Lazy
@@ -60,7 +65,7 @@ export default function Recommendations({
       </div>
 
       {!userLocation && (
-        <p className="text-sm text-gray-500 text-center py-4">
+        <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">
           Enable location for recommendations
         </p>
       )}
@@ -69,17 +74,17 @@ export default function Recommendations({
         {recommendations.slice(0, 10).map((shop, index) => (
           <div
             key={shop.id}
-            className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors"
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
           >
             <div className="flex items-start justify-between">
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-gray-400">
+                  <span className="text-xs font-bold text-slate-400">
                     #{index + 1}
                   </span>
-                  <h3 className="font-semibold text-gray-900">{shop.name}</h3>
+                  <h3 className="font-semibold text-slate-900 dark:text-white truncate">{shop.name}</h3>
                 </div>
-                <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                <div className="flex items-center gap-3 mt-1 text-sm text-slate-500 dark:text-slate-400">
                   {shop.distance !== undefined && (
                     <span>{shop.distance.toFixed(1)} km</span>
                   )}
@@ -92,16 +97,22 @@ export default function Recommendations({
                   )}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0 ml-3">
                 <button
-                  onClick={() => onSelectShop(shop)}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+                  onClick={() => {
+                    haptic('light');
+                    onSelectShop(shop);
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:scale-95 transition-transform"
                 >
                   Check In
                 </button>
                 <button
-                  onClick={() => handleFindCrawl(shop)}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200"
+                  onClick={() => {
+                    haptic('light');
+                    handleFindCrawl(shop);
+                  }}
+                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600"
                 >
                   Crawl
                 </button>
