@@ -9,13 +9,22 @@ import {
   orderBy,
   where,
   Timestamp,
+  writeBatch,
 } from 'firebase/firestore';
+import Papa from 'papaparse';
 import { db } from './firebase';
 import type { Shop, CheckIn, BoloItem } from './types';
 
 const SHOPS_COLLECTION = 'shops';
 const CHECKINS_COLLECTION = 'checkins';
 const BOLO_COLLECTION = 'bolo';
+
+interface SeedShopRow {
+  name?: string;
+  address?: string;
+  lat?: string;
+  lng?: string;
+}
 
 // LocalStorage cache helpers
 function getCached<T>(key: string): T | null {
@@ -245,41 +254,65 @@ export async function loadSeedDataIfNeeded(existingShopCount?: number): Promise<
 
   try {
     const response = await fetch('/seed.csv');
+    if (!response.ok) {
+      throw new Error(`Seed CSV request failed with ${response.status}`);
+    }
     const text = await response.text();
-    
-    // Parse CSV manually (simple approach)
-    const lines = text.split('\n').filter((line) => line.trim());
-    if (lines.length < 2) return; // No data rows
 
-    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/"/g, ''));
-    
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map((v) => v.trim().replace(/"/g, ''));
-      if (values.length < 3) continue;
-
-      const row: Record<string, string> = {};
-      headers.forEach((h, idx) => {
-        row[h] = values[idx] || '';
-      });
-
-      const name = row.name || row.title;
-      const lat = parseFloat(row.lat) || 0;
-      const lng = parseFloat(row.lng) || 0;
-      const address = row.address || '';
-
-      if (name && lat !== 0 && lng !== 0) {
-        try {
-          await addShop({ name, lat, lng, address: address || undefined });
-        } catch {
-          // Continue on individual import errors
-        }
-      }
+    const parsed = Papa.parse<SeedShopRow>(text, {
+      header: true,
+      skipEmptyLines: 'greedy',
+      transformHeader: (header) => header.trim().toLowerCase(),
+    });
+    if (parsed.errors.length > 0) {
+      throw new Error(`Seed CSV parse failed: ${parsed.errors[0].message}`);
     }
 
-    // Mark seed as loaded so we don't re-import on future visits
+    const rows = parsed.data.map((row) => ({
+      name: row.name?.trim() || '',
+      address: row.address?.trim() || '',
+      lat: Number(row.lat),
+      lng: Number(row.lng),
+    }));
+    const invalidRows = rows.filter(
+      (row) =>
+        !row.name ||
+        !Number.isFinite(row.lat) ||
+        !Number.isFinite(row.lng) ||
+        Math.abs(row.lat) > 90 ||
+        Math.abs(row.lng) > 180
+    );
+    if (rows.length === 0 || invalidRows.length > 0) {
+      throw new Error(
+        `Seed CSV contains ${invalidRows.length} invalid row(s)`
+      );
+    }
+    if (!db) {
+      throw new Error('Firestore is not configured');
+    }
+    const firestore = db;
+
+    // One atomic commit prevents partial imports and only marks success after
+    // every shop has been accepted by Firestore.
+    const batch = writeBatch(firestore);
+    const createdAt = Timestamp.now();
+    rows.forEach((row) => {
+      const shopRef = doc(collection(firestore, SHOPS_COLLECTION));
+      batch.set(shopRef, {
+        name: row.name,
+        address: row.address || undefined,
+        lat: row.lat,
+        lng: row.lng,
+        createdAt,
+        visitCount: 0,
+        dropped: false,
+      });
+    });
+    await batch.commit();
+
     setCache('tt_seed_loaded', true);
   } catch (err) {
-    console.log('[v0] Failed to load seed data:', err);
+    console.warn('Failed to load seed data:', err);
   }
 }
 
